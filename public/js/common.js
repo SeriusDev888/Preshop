@@ -520,6 +520,7 @@ export async function renderChrome(active = '') {
         <a href="/#for-shops"><b>ร้านค้าใช้อะไรได้บ้าง</b><small>รับออเดอร์ล่วงหน้า สรุปของที่ต้องทำ ฯลฯ</small></a>
       </div>
     </div>`;
+  if (me.user?.isAdmin) html += link('/admin', 'แอดมิน', 'admin');
   if (me.user) html += link('/account', esc(me.user.name || 'บัญชี'), 'account');
   else html += `<a class="btn primary sm" href="/login?next=${encodeURIComponent(location.pathname + location.search)}">เข้าสู่ระบบ</a>`;
   if (!isAppMode()) html += `<a href="#" class="btn sm dark ${installEvent ? '' : 'hidden'}" data-install id="navInstall">ติดตั้งแอป</a>`;

@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ผู้ดูแลระบบ — Preshop</title>
+  <meta name="theme-color" content="#d62828">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/v2.css">
+  <link rel="stylesheet" href="/css/v3.css">
+</head>
+<body>
+  <main style="padding-top:20px">
+    <div class="wrap dash">
+      <nav class="dash-nav" id="tabs">
+        <div class="shopname"><b>ผู้ดูแลระบบ</b><div class="small muted shop-lbl">จัดการทั้งระบบ Preshop</div></div>
+        <button data-tab="overview">ภาพรวม</button>
+        <button data-tab="shops">ร้านค้า</button>
+        <button data-tab="users">ผู้ใช้</button>
+        <button data-tab="reviews">รีวิว & ข้อความ</button>
+      </nav>
+      <div id="panel"></div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { $, $$, api, esc, baht, renderChrome, requireLogin, toast, toastErr, busy, modal, fmtDateTime, fmtPhone } from '/js/common.js';
+    import { catTh } from '/js/icons.js';
+    import { areaLabel } from '/js/thai.js';
+
+    await renderChrome('admin');
+    const me = await requireLogin();
+    if (!me.user.isAdmin) {
+      $('main .wrap').innerHTML = '<div class="empty" style="grid-column:1/-1">หน้านี้สำหรับผู้ดูแลระบบเท่านั้น<br><small>ตั้งเบอร์ผู้ดูแลใน ADMIN_PHONES</small></div>';
+      throw new Error('not admin');
+    }
+
+    const TABS = ['overview', 'shops', 'users', 'reviews'];
+    let tab = '';
+    const filters = { shops: { q: '', filter: '' }, users: { q: '', filter: '' }, reviews: { q: '', kind: '' } };
+    $('#tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) location.hash = b.dataset.tab; };
+    window.addEventListener('hashchange', route);
+    function route() {
+      tab = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'overview';
+      $$('#tabs [data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+      ({ overview, shops, users, reviews })[tab]().catch(toastErr);
+    }
+
+    // ยืนยันการกระทำที่ย้อนกลับไม่ได้: ต้องพิมพ์คำยืนยัน (+ เหตุผลถ้ามี)
+    function confirmDanger({ title, text, word, needReason = false, okLabel = 'ยืนยัน', danger = true }) {
+      return new Promise((resolve) => {
+        const d = modal({
+          title,
+          body: `<p style="margin-top:0">${text}</p>
+            ${needReason ? '<label class="field"><span>เหตุผล (ผู้เกี่ยวข้องจะเห็น)</span><input type="text" id="cdReason" maxlength="200"></label>' : ''}
+            ${word ? `<label class="field" style="margin-top:10px"><span>พิมพ์ <b>${esc(word)}</b> เพื่อยืนยัน</span><input type="text" id="cdWord" autocomplete="off"></label>` : ''}`,
+          actions: `<button class="btn" data-close>ยกเลิก</button><button class="btn ${danger ? 'danger' : 'primary'}" id="cdOk" ${word ? 'disabled' : ''}>${esc(okLabel)}</button>`,
+        });
+        let result = null;
+        d.querySelector('#cdWord')?.addEventListener('input', (e) => { d.querySelector('#cdOk').disabled = e.target.value.trim() !== word; });
+        d.querySelector('#cdOk').onclick = () => { result = { reason: d.querySelector('#cdReason')?.value.trim() || '' }; d.close(); };
+        d.addEventListener('close', () => resolve(result));
+      });
+    }
+
+    // ═════════ ภาพรวม ═════════
+    async function overview() {
+      const s = await api('/api/admin/stats');
+      $('#panel').innerHTML = `
+        <h1>ภาพรวมระบบ</h1>
+        <div class="stats">
+          <a class="stat" href="#users" style="text-decoration:none;color:inherit"><div class="k">ผู้ใช้</div><div class="v">${s.users}</div><div class="s">${s.bannedUsers ? `ถูกแบน ${s.bannedUsers}` : 'ไม่มีบัญชีถูกแบน'}</div></a>
+          <a class="stat" href="#shops" style="text-decoration:none;color:inherit"><div class="k">ร้านค้า</div><div class="v">${s.shops}</div><div class="s">เปิดรับ ${s.openShops}${s.suspendedShops ? ` · ระงับ ${s.suspendedShops}` : ''}</div></a>
+          <div class="stat"><div class="k">ออเดอร์</div><div class="v">${s.orders}</div><div class="s">วันนี้ ${s.ordersToday} · กำลังดำเนินการ ${s.activeOrders}</div></div>
+          <div class="stat"><div class="k">ยอดสั่งเดือนนี้ (ทุกร้าน)</div><div class="v num">${baht(s.gmvMonth)}</div><div class="s">ไม่รวมออเดอร์ยกเลิก</div></div>
+          <a class="stat ${s.openFeedback ? 'hot' : ''}" href="/feedback" style="text-decoration:none;color:inherit"><div class="k">ข้อเสนอแนะถึงทีม (รอตอบ)</div><div class="v">${s.openFeedback}</div><div class="s">รีวิวทั้งหมด ${s.reviews}</div></a>
+        </div>
+        <div class="card soft" style="margin-top:16px">
+          <b>หลักการลบข้อมูล</b>
+          <ul class="small" style="margin:8px 0 0;padding-left:20px;line-height:1.8">
+            <li><b>ระงับ</b> ร้าน/แบนผู้ใช้ = ซ่อนชั่วคราว กลับมาเปิดได้ ข้อมูลไม่หาย</li>
+            <li><b>ลบ</b> = ถาวร ออเดอร์ที่ยังค้างจะถูกยกเลิกอัตโนมัติ ประวัติออเดอร์เก่ายังเก็บไว้ (ลบข้อมูลส่วนตัวผู้รับออก)</li>
+            <li>จัดการบัญชีตัวเองหรือผู้ดูแลระบบคนอื่นจากหน้านี้ไม่ได้</li>
+          </ul>
+        </div>`;
+    }
+
+    // ═════════ ร้านค้า ═════════
+    async function shops() {
+      const f = filters.shops;
+      if (!$('#shopList')) {
+        $('#panel').innerHTML = `
+          <h1>ร้านค้า</h1>
+          <div class="filters"><input type="search" id="sq" placeholder="ค้นหาชื่อร้าน ลิงก์ ชื่อ/เบอร์เจ้าของ">
+            <select id="sf"><option value="">ทุกร้าน</option><option value="suspended">ถูกระงับ</option><option value="closed">ปิดรับออเดอร์</option></select></div>
+          <div id="shopList"></div>`;
+        $('#sq').value = f.q; $('#sf').value = f.filter;
+        let t;
+        $('#sq').oninput = () => { clearTimeout(t); t = setTimeout(() => { f.q = $('#sq').value; shops().catch(toastErr); }, 300); };
+        $('#sf').onchange = () => { f.filter = $('#sf').value; shops().catch(toastErr); };
+      }
+      const { shops: list } = await api(`/api/admin/shops?q=${encodeURIComponent(f.q)}&filter=${f.filter}`);
+      $('#shopList').innerHTML = list.length ? `<div class="table-wrap"><table class="t">
+        <thead><tr><th>ร้าน</th><th>เจ้าของ</th><th class="r">ออเดอร์</th><th>สถานะ</th><th></th></tr></thead>
+        <tbody>${list.map((s) => `<tr data-id="${s.id}" data-name="${esc(s.name)}">
+          <td><a href="/s/${esc(s.slug)}" target="_blank"><b>${esc(s.name)}</b></a><div class="small muted">${catTh(s.category)}${s.province ? ' · ' + esc(areaLabel(s.province, s.district)) : ''} · ${s.productCount} เมนู${s.rating ? ` · ★${s.rating}` : ''}</div></td>
+          <td>${esc(s.owner.name || '-')}<div class="small muted">${fmtPhone(s.owner.phone)}</div></td>
+          <td class="r num">${s.orderCount}${s.activeCount ? `<div class="small" style="color:var(--warn)">ค้าง ${s.activeCount}</div>` : ''}</td>
+          <td>${s.suspended ? `<span class="pill bad">ระงับ</span><div class="small muted">${esc(s.suspendedReason)}</div>` : s.isOpen ? '<span class="state-on">เปิดรับ</span>' : '<span class="state-off">ปิด</span>'}</td>
+          <td class="r" style="white-space:nowrap">${s.suspended ? '<button class="btn sm" data-act="unsuspend">ปลดระงับ</button>' : '<button class="btn sm" data-act="suspend">ระงับ</button>'}
+            <button class="btn sm danger" data-act="delete">ลบ</button></td>
+        </tr>`).join('')}</tbody></table></div>` : '<div class="empty">ไม่พบร้าน</div>';
+      $$('#shopList [data-act]').forEach((b) => (b.onclick = async () => {
+        const row = b.closest('tr');
+        const id = row.dataset.id, name = row.dataset.name;
+        try {
+          if (b.dataset.act === 'suspend') {
+            const r = await confirmDanger({ title: `ระงับร้าน “${name}”`, text: 'ร้านจะหายจากหน้าแรก ลูกค้าสั่งไม่ได้ เจ้าของยังเข้าหน้าจัดการร้านได้ ปลดระงับได้ภายหลัง', needReason: true, okLabel: 'ระงับร้าน' });
+            if (!r) return;
+            await api(`/api/admin/shops/${id}/suspend`, { method: 'POST', body: { reason: r.reason } });
+            toast('ระงับร้านแล้ว', 'ok');
+          } else if (b.dataset.act === 'unsuspend') {
+            await api(`/api/admin/shops/${id}/unsuspend`, { method: 'POST' });
+            toast('ปลดระงับแล้ว', 'ok');
+          } else {
+            const r = await confirmDanger({ title: `ลบร้าน “${name}” ถาวร`, text: 'ลบเมนู รีวิว และแชทของร้านนี้ <b>ย้อนกลับไม่ได้</b> ออเดอร์ที่ค้างอยู่จะถูกยกเลิกและแจ้งลูกค้า ประวัติออเดอร์เก่ายังอยู่', word: name, needReason: true, okLabel: 'ลบร้านถาวร' });
+            if (!r) return;
+            await api(`/api/admin/shops/${id}?reason=${encodeURIComponent(r.reason)}`, { method: 'DELETE' });
+            toast('ลบร้านแล้ว', 'ok');
+          }
+          shops();
+        } catch (err) { toastErr(err); }
+      }));
+    }
+
+    // ═════════ ผู้ใช้ ═════════
+    async function users() {
+      const f = filters.users;
+      if (!$('#userList')) {
+        $('#panel').innerHTML = `
+          <h1>ผู้ใช้</h1>
+          <div class="filters"><input type="search" id="uq" placeholder="ค้นหาชื่อ หรือเบอร์โทร">
+            <select id="uf"><option value="">ทุกคน</option><option value="sellers">เจ้าของร้าน</option><option value="banned">ถูกแบน</option></select></div>
+          <div id="userList"></div>`;
+        $('#uq').value = f.q; $('#uf').value = f.filter;
+        let t;
+        $('#uq').oninput = () => { clearTimeout(t); t = setTimeout(() => { f.q = $('#uq').value; users().catch(toastErr); }, 300); };
+        $('#uf').onchange = () => { f.filter = $('#uf').value; users().catch(toastErr); };
+      }
+      const { users: list } = await api(`/api/admin/users?q=${encodeURIComponent(f.q)}&filter=${f.filter}`);
+      $('#userList').innerHTML = list.length ? `<div class="table-wrap"><table class="t">
+        <thead><tr><th>ผู้ใช้</th><th>เบอร์</th><th class="r">ร้าน / ออเดอร์</th><th>สถานะ</th><th></th></tr></thead>
+        <tbody>${list.map((u) => `<tr data-id="${u.id}" data-name="${esc(u.name || u.phone)}">
+          <td><b>${esc(u.name || '(ยังไม่ตั้งชื่อ)')}</b>${u.isAdmin ? ' <span class="pill info">แอดมิน</span>' : ''}<div class="small muted">${u.area ? esc(u.area) + ' · ' : ''}สมัคร ${fmtDateTime(u.createdAt)}</div></td>
+          <td class="num">${fmtPhone(u.phone)}</td>
+          <td class="r num">${u.shopCount} / ${u.orderCount}</td>
+          <td>${u.banned ? `<span class="pill bad">แบน</span><div class="small muted">${esc(u.bannedReason)}</div>` : '<span class="pill ok">ปกติ</span>'}</td>
+          <td class="r" style="white-space:nowrap">${u.isAdmin || u.id === me.user.id ? '' : `${u.banned ? '<button class="btn sm" data-act="unban">ปลดแบน</button>' : '<button class="btn sm" data-act="ban">แบน</button>'}
+            <button class="btn sm danger" data-act="delete">ลบบัญชี</button>`}</td>
+        </tr>`).join('')}</tbody></table></div>` : '<div class="empty">ไม่พบผู้ใช้</div>';
+      $$('#userList [data-act]').forEach((b) => (b.onclick = async () => {
+        const row = b.closest('tr');
+        const id = row.dataset.id, name = row.dataset.name;
+        try {
+          if (b.dataset.act === 'ban') {
+            const r = await confirmDanger({ title: `แบน “${name}”`, text: 'ผู้ใช้จะถูกออกจากระบบและเข้าสู่ระบบไม่ได้ ร้านของเขาจะถูกระงับด้วย ปลดแบนได้ภายหลัง', needReason: true, okLabel: 'แบนบัญชี' });
+            if (!r) return;
+            await api(`/api/admin/users/${id}/ban`, { method: 'POST', body: { reason: r.reason } });
+            toast('แบนแล้ว', 'ok');
+          } else if (b.dataset.act === 'unban') {
+            await api(`/api/admin/users/${id}/unban`, { method: 'POST' });
+            toast('ปลดแบนแล้ว ร้านที่ถูกระงับเพราะการแบนเปิดคืนแล้ว', 'ok');
+          } else {
+            const r = await confirmDanger({ title: `ลบบัญชี “${name}” ถาวร`, text: 'ลบข้อมูลส่วนตัว ร้านทั้งหมด รีวิว และแชทของผู้ใช้นี้ <b>ย้อนกลับไม่ได้</b> ออเดอร์ที่ค้างจะถูกยกเลิก เบอร์นี้สมัครใหม่ได้เป็นบัญชีใหม่', word: 'ลบบัญชี', okLabel: 'ลบบัญชีถาวร' });
+            if (!r) return;
+            await api(`/api/admin/users/${id}`, { method: 'DELETE' });
+            toast('ลบบัญชีแล้ว', 'ok');
+          }
+          users();
+        } catch (err) { toastErr(err); }
+      }));
+    }
+
+    // ═════════ รีวิว & ข้อความ ═════════
+    const KIND = { review: 'รีวิว', suggestion: 'คำแนะนำ', request: 'อยากให้มี', problem: 'แจ้งปัญหา' };
+    async function reviews() {
+      const f = filters.reviews;
+      if (!$('#revList')) {
+        $('#panel').innerHTML = `
+          <div class="row between"><h1 style="margin:0">รีวิว & ข้อความ</h1><a class="btn sm" href="/feedback">ตอบข้อเสนอแนะถึงทีม</a></div>
+          <div class="filters" style="margin-top:14px"><input type="search" id="rq" placeholder="ค้นหาข้อความ ชื่อผู้เขียน หรือชื่อร้าน">
+            <select id="rk"><option value="">ทุกประเภท</option>${Object.entries(KIND).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
+          <div id="revList"></div>`;
+        $('#rq').value = f.q; $('#rk').value = f.kind;
+        let t;
+        $('#rq').oninput = () => { clearTimeout(t); t = setTimeout(() => { f.q = $('#rq').value; reviews().catch(toastErr); }, 300); };
+        $('#rk').onchange = () => { f.kind = $('#rk').value; reviews().catch(toastErr); };
+      }
+      const { feedback } = await api(`/api/admin/reviews?q=${encodeURIComponent(f.q)}&kind=${f.kind}`);
+      $('#revList').innerHTML = feedback.length ? feedback.map((r) => `
+        <div class="card" data-id="${r.id}">
+          <div class="row between">
+            <div><b>${esc(r.userName || 'ผู้ใช้')}</b> <span class="small muted">${fmtPhone(r.userPhone)}</span> → ${r.shopName ? `<a href="/s/${esc(r.shopSlug)}" target="_blank">${esc(r.shopName)}</a>` : '<i>ทีม Preshop</i>'}</div>
+            <span class="row" style="gap:6px"><span class="pill grey">${KIND[r.kind]}</span>${r.rating ? `<span class="stars">${'★'.repeat(r.rating)}</span>` : ''}<button class="btn sm danger" data-del>ลบ</button></span>
+          </div>
+          <div class="small muted">${fmtDateTime(r.createdAt)}</div>
+          <p style="white-space:pre-line;margin:6px 0 0">${esc(r.message)}</p>
+          ${r.reply ? `<div class="review"><div class="reply"><b>ตอบกลับ:</b> ${esc(r.reply)}</div></div>` : ''}
+        </div>`).join('') : '<div class="empty">ไม่มีข้อความ</div>';
+      $$('#revList [data-del]').forEach((b) => (b.onclick = async () => {
+        const r = await confirmDanger({ title: 'ลบข้อความนี้', text: 'ลบถาวร ย้อนกลับไม่ได้', okLabel: 'ลบ' });
+        if (!r) return;
+        try { await api(`/api/admin/feedback/${b.closest('[data-id]').dataset.id}`, { method: 'DELETE' }); toast('ลบแล้ว', 'ok'); reviews(); } catch (err) { toastErr(err); }
+      }));
+    }
+
+    route();
+  </script>
+</body>
+</html>

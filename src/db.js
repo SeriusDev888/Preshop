@@ -217,6 +217,16 @@ CREATE INDEX IF NOT EXISTS idx_feedback_shop ON feedback(shop_id);
     if (!ucols.has(c)) db.exec(`ALTER TABLE users ADD COLUMN ${c} ${def}`);
   }
 
+  // v4: ระงับ/ลบร้าน, แบน/ลบบัญชี
+  const cols4 = new Set(db.prepare('PRAGMA table_info(shops)').all().map((c) => c.name));
+  for (const [c, def] of Object.entries({ suspended: 'INTEGER NOT NULL DEFAULT 0', suspended_reason: `TEXT NOT NULL DEFAULT ''`, deleted_at: 'TEXT' })) {
+    if (!cols4.has(c)) db.exec(`ALTER TABLE shops ADD COLUMN ${c} ${def}`);
+  }
+  const ucols4 = new Set(db.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
+  for (const [c, def] of Object.entries({ banned: 'INTEGER NOT NULL DEFAULT 0', banned_reason: `TEXT NOT NULL DEFAULT ''`, deleted_at: 'TEXT' })) {
+    if (!ucols4.has(c)) db.exec(`ALTER TABLE users ADD COLUMN ${c} ${def}`);
+  }
+
   const version = db.prepare('PRAGMA user_version').get().user_version;
   if (version < 2) {
     // ส่งฟรีในระยะ 3 กม. (ไม่มีเงื่อนไขยอดสั่งแล้ว)

@@ -40,6 +40,13 @@
         <div class="section-title"><h2>ข้อความที่ฉันส่ง</h2><a class="small" href="/feedback">ส่งข้อเสนอแนะถึง Preshop</a></div>
         <div id="myFb"><p class="muted">กำลังโหลด…</p></div>
       </section>
+
+      <section class="card" style="margin-top:28px">
+        <h2 style="color:var(--bad)">ลบบัญชี</h2>
+        <p class="small muted" style="margin:0 0 10px">ลบชื่อ เบอร์โทร ที่อยู่ ช่องทางติดต่อ รีวิว แชท และร้านทั้งหมดของคุณถาวร
+          ต้องไม่มีออเดอร์ที่ยังไม่เสร็จ (ทั้งที่สั่งและที่ร้านต้องส่ง) · ใช้เบอร์เดิมสมัครใหม่ได้ภายหลังเป็นบัญชีใหม่</p>
+        <button type="button" class="btn danger" id="delAcc">ลบบัญชีของฉัน</button>
+      </section>
     </div>
   </main>
 
@@ -74,6 +81,19 @@
         .catch(toastErr);
     });
     renderMyLoc(u.location);
+    $('#delAcc').onclick = async () => {
+      const { modal } = await import('/js/common.js');
+      const d = modal({
+        title: 'ลบบัญชีถาวร',
+        body: `<p style="margin-top:0">การลบ<b>ย้อนกลับไม่ได้</b>${(me.shops || []).length ? ` ร้านของคุณ ${me.shops.length} ร้านจะถูกลบไปด้วย` : ''}<br>พิมพ์คำว่า <b>ลบบัญชี</b> เพื่อยืนยัน</p><input type="text" id="delWord" autocomplete="off">`,
+        actions: '<button class="btn" data-close>ยกเลิก</button><button class="btn danger" id="delOk" disabled>ลบบัญชีถาวร</button>',
+      });
+      d.querySelector('#delWord').oninput = (e) => (d.querySelector('#delOk').disabled = e.target.value.trim() !== 'ลบบัญชี');
+      d.querySelector('#delOk').onclick = (e) =>
+        busy(e.currentTarget, () => api('/api/me?confirm=' + encodeURIComponent('ลบบัญชี'), { method: 'DELETE' }))
+          .then(() => { setCurrentShopId(0); location.href = '/?deleted=1'; })
+          .catch(toastErr);
+    };
     $('#logout').onclick = async () => {
       await api('/api/auth/logout', { method: 'POST' });
       location.href = '/';

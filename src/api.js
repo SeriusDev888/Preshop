@@ -201,6 +201,8 @@ function shopJson(s, { full = false } = {}) {
   out.accepting = acc.ok;
   out.statusMode = acc.mode;
   out.statusReason = acc.reason;
+  out.suspended = !!s.suspended;
+  out.suspendedReason = s.suspended_reason;
   out.orderBaseDate = orderBaseDate(s);
   out.pastCutoff = out.orderBaseDate !== todayTH();
   out.minReceiveDate = minReceiveDate(s);
@@ -281,7 +283,7 @@ function currentUser(req) {
   if (!token) return null;
   return (
     db
-      .prepare('SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?')
+      .prepare('SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ? AND u.banned = 0 AND u.deleted_at IS NULL')
       .get(sha256(token), Date.now()) || null
   );
 }
@@ -299,7 +301,7 @@ function needShop(ctx) {
   if (!shop) throw new HttpError(403, 'คุณยังไม่ได้เปิดร้าน');
   return shop;
 }
-const myShops = (userId) => db.prepare('SELECT * FROM shops WHERE owner_id = ? ORDER BY id').all(userId);
+const myShops = (userId) => db.prepare('SELECT * FROM shops WHERE owner_id = ? AND deleted_at IS NULL ORDER BY id').all(userId);
 
 const CATEGORY_KEYS = ['dessert', 'food', 'bakery', 'drink', 'merit', 'goods', 'other'];
 
@@ -322,6 +324,7 @@ function orderBaseDate(shop) {
   return nowTimeTH() >= shop.order_cutoff_time ? addDays(today, 1) : today;
 }
 function acceptingNow(shop) {
+  if (shop.suspended) return { ok: false, mode: 'suspended', reason: 'ร้านนี้ถูกระงับโดยผู้ดูแลระบบ' };
   if (!shop.is_open) return { ok: false, mode: 'closed', reason: shop.closed_message || 'ร้านปิดรับออเดอร์ชั่วคราว' };
   if (shop.paused_until && shop.paused_until > todayTH()) return { ok: false, mode: 'today', reason: `ร้านปิดรับออเดอร์วันนี้ เปิดรับอีกครั้ง ${fmtDateTH(shop.paused_until)}` };
   return { ok: true, mode: 'open', reason: '' };
@@ -410,6 +413,7 @@ route('POST', '/api/auth/verify-otp', ({ body, headers }) => {
   db.prepare('UPDATE otps SET used = 1 WHERE id = ?').run(otp.id);
 
   let user = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
+  if (user?.banned) throw new HttpError(403, `บัญชีนี้ถูกระงับการใช้งาน${user.banned_reason ? `: ${user.banned_reason}` : ''} ติดต่อผู้ดูแลระบบ`);
   if (!user) {
     const r = db.prepare('INSERT INTO users (phone, created_at) VALUES (?, ?)').run(phone, nowIso());
     user = db.prepare('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid);
@@ -458,7 +462,7 @@ route('PUT', '/api/me/location', (ctx) => {
 
 // จังหวัด/อำเภอที่มีร้าน ใช้ทำตัวกรอง
 route('GET', '/api/locations', () => {
-  const rows = db.prepare(`SELECT province, district, COUNT(*) c FROM shops WHERE province != '' GROUP BY province, district ORDER BY province, district`).all();
+  const rows = db.prepare(`SELECT province, district, COUNT(*) c FROM shops WHERE province != '' AND deleted_at IS NULL AND suspended = 0 GROUP BY province, district ORDER BY province, district`).all();
   const map = {};
   for (const r of rows) {
     map[r.province] ??= { province: r.province, count: 0, districts: [] };
@@ -515,7 +519,8 @@ route('GET', '/api/shops', ({ query, user }) => {
     .prepare(
       `SELECT s.*, ${SHOP_STATS}
        FROM shops s
-       WHERE (? = '' OR s.name LIKE ? OR s.description LIKE ? OR s.areas LIKE ? OR s.district LIKE ? OR s.province LIKE ?
+       WHERE s.deleted_at IS NULL AND s.suspended = 0
+         AND (? = '' OR s.name LIKE ? OR s.description LIKE ? OR s.areas LIKE ? OR s.district LIKE ? OR s.province LIKE ?
               OR EXISTS (SELECT 1 FROM products p WHERE p.shop_id = s.id AND p.archived = 0 AND p.name LIKE ?))
          AND (? = '' OR s.province = ?) AND (? = '' OR s.district = ?)
        ${extra.map((e) => 'AND ' + e).join(' ')}
@@ -548,7 +553,7 @@ route('GET', '/api/shops', ({ query, user }) => {
 
 // ร้านยอดนิยม สำหรับสไลด์หน้าแรก
 route('GET', '/api/shops/featured', () => {
-  const rows = db.prepare(`SELECT s.*, ${SHOP_STATS} FROM shops s WHERE s.is_open = 1`).all().filter((s) => s.product_count > 0);
+  const rows = db.prepare(`SELECT s.*, ${SHOP_STATS} FROM shops s WHERE s.is_open = 1 AND s.suspended = 0 AND s.deleted_at IS NULL`).all().filter((s) => s.product_count > 0);
   rows.sort((a, b) => b.order_count + (b.rating || 0) * 3 - (a.order_count + (a.rating || 0) * 3));
   return { shops: rows.slice(0, 5).map((s) => shopListJson(s)) };
 });
@@ -570,8 +575,9 @@ route('GET', '/api/shops/:slug/calendar', ({ params, query }) => {
 });
 
 route('GET', '/api/shops/:slug', ({ params, user }) => {
-  const s = db.prepare('SELECT * FROM shops WHERE slug = ?').get(params.slug);
+  const s = db.prepare('SELECT * FROM shops WHERE slug = ? AND deleted_at IS NULL').get(params.slug);
   if (!s) throw new HttpError(404, 'ไม่พบร้านนี้');
+  if (s.suspended && s.owner_id !== user?.id && !isAdmin(user)) throw new HttpError(404, 'ร้านนี้ถูกระงับชั่วคราว');
   const products = db.prepare('SELECT * FROM products WHERE shop_id = ? AND is_active = 1 AND archived = 0 ORDER BY sort, id').all(s.id);
   const rating = db.prepare(`SELECT ROUND(AVG(rating),1) avg, COUNT(*) c FROM feedback WHERE shop_id = ? AND kind = 'review'`).get(s.id);
   return {
@@ -1486,4 +1492,225 @@ route('POST', '/api/admin/feedback/:id/reply', (ctx) => {
   const row = db.prepare('SELECT * FROM feedback WHERE id = ? AND shop_id IS NULL').get(Number(ctx.params.id));
   if (!row) throw new HttpError(404, 'ไม่พบข้อความ');
   return replyFeedback(row, ctx.body);
+});
+
+// ═════════════════════════ ลบ / ระงับ / แบน ═════════════════════════
+
+function isAdmin(u) {
+  return !!u && ADMIN_PHONES.includes(u.phone);
+}
+const ACTIVE_ORDER = `status NOT IN ('completed','cancelled')`;
+const randTag = () => crypto.randomBytes(3).toString('hex');
+
+// ยกเลิกออเดอร์ที่ยังค้าง (ใช้ตอนแอดมินบังคับลบ)
+function cancelActive(where, args, actor, reason) {
+  const rows = db.prepare(`SELECT id FROM orders WHERE ${where} AND ${ACTIVE_ORDER}`).all(...args);
+  for (const o of rows) {
+    db.prepare(`UPDATE orders SET status = 'cancelled', cancel_reason = ?, updated_at = ? WHERE id = ?`).run(reason, nowIso(), o.id);
+    addEvent(o.id, actor, 'cancelled', reason);
+  }
+  return rows.length;
+}
+
+// ลบร้าน: ซ่อนถาวร คืนลิงก์ร้านให้คนอื่นใช้ได้ ประวัติออเดอร์ยังอยู่ (ต้องเรียกภายใน tx)
+function removeShop(shopId, actor, reason) {
+  cancelActive('shop_id = ?', [shopId], actor, reason);
+  db.prepare(`UPDATE shops SET deleted_at = ?, is_open = 0, suspended = 0, slug = ? WHERE id = ?`).run(nowIso(), `deleted-${shopId}-${randTag()}`, shopId);
+  db.prepare('UPDATE products SET archived = 1, is_active = 0 WHERE shop_id = ?').run(shopId);
+  db.prepare('DELETE FROM feedback WHERE shop_id = ?').run(shopId);
+  db.prepare('DELETE FROM conversations WHERE shop_id = ?').run(shopId);
+}
+
+// ลบบัญชี: ลบร้านของผู้ใช้ ลบข้อมูลส่วนตัว (ชื่อ เบอร์ ที่อยู่ ช่องทางติดต่อ รีวิว แชท)
+// ออเดอร์เก่ายังอยู่ให้ร้านดูยอดได้ แต่ลบข้อมูลผู้รับออก (ต้องเรียกภายใน tx)
+function removeUser(userId, actor, reason) {
+  for (const s of myShops(userId)) removeShop(s.id, actor, reason);
+  cancelActive('buyer_id = ?', [userId], actor, reason);
+  db.prepare(`UPDATE orders SET recipient_name = 'ผู้ใช้ที่ลบบัญชี', recipient_phone = '-', address = '', lat = NULL, lng = NULL, slip_image = NULL WHERE buyer_id = ?`).run(userId);
+  db.prepare('DELETE FROM feedback WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM conversations WHERE buyer_id = ?').run(userId);
+  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+  db.prepare(
+    `UPDATE users SET name = 'ผู้ใช้ที่ลบบัญชี', phone = ?, contacts = '{}', lat = NULL, lng = NULL, address = '', province = '', district = '', deleted_at = ? WHERE id = ?`
+  ).run(`deleted-${userId}-${randTag()}`, nowIso(), userId);
+}
+
+const activeOrdersOfShop = (shopId) => db.prepare(`SELECT COUNT(*) c FROM orders WHERE shop_id = ? AND ${ACTIVE_ORDER}`).get(shopId).c;
+const activeOrdersAsBuyer = (userId) => db.prepare(`SELECT COUNT(*) c FROM orders WHERE buyer_id = ? AND ${ACTIVE_ORDER}`).get(userId).c;
+
+// ── เจ้าของร้านลบร้านตัวเอง ──
+route('DELETE', '/api/my/shop', (ctx) => {
+  const shop = needShop(ctx);
+  if (String(ctx.query.confirm || '').trim() !== shop.name) throw bad('พิมพ์ชื่อร้านให้ตรงเพื่อยืนยันการลบ');
+  const n = activeOrdersOfShop(shop.id);
+  if (n) throw bad(`ยังมีออเดอร์ที่ยังไม่เสร็จ ${n} รายการ กรุณาส่งให้เสร็จหรือยกเลิกก่อนลบร้าน`);
+  tx(() => removeShop(shop.id, 'seller', 'ร้านปิดกิจการ'));
+  return { ok: true };
+});
+
+// ── ผู้ใช้ลบบัญชีตัวเอง ──
+route('DELETE', '/api/me', (ctx) => {
+  const u = needUser(ctx);
+  if (String(ctx.query.confirm || '').trim() !== 'ลบบัญชี') throw bad('พิมพ์คำว่า "ลบบัญชี" เพื่อยืนยัน');
+  const asBuyer = activeOrdersAsBuyer(u.id);
+  if (asBuyer) throw bad(`คุณยังมีออเดอร์ที่ยังไม่เสร็จ ${asBuyer} รายการ รอรับของหรือยกเลิกก่อนลบบัญชี`);
+  for (const s of myShops(u.id)) {
+    const n = activeOrdersOfShop(s.id);
+    if (n) throw bad(`ร้าน "${s.name}" ยังมีออเดอร์ค้าง ${n} รายการ กรุณาจัดการให้เสร็จก่อนลบบัญชี`);
+  }
+  tx(() => removeUser(u.id, 'buyer', 'ลูกค้าลบบัญชี'));
+  ctx.headers['Set-Cookie'] = `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${COOKIE_SECURE}`;
+  return { ok: true };
+});
+
+// ═════════════════════════ ADMIN ═════════════════════════
+
+route('GET', '/api/admin/stats', (ctx) => {
+  needAdmin(ctx);
+  const one = (sql, ...a) => db.prepare(sql).get(...a);
+  const today = todayTH();
+  return {
+    users: one('SELECT COUNT(*) c FROM users WHERE deleted_at IS NULL').c,
+    bannedUsers: one('SELECT COUNT(*) c FROM users WHERE banned = 1 AND deleted_at IS NULL').c,
+    shops: one('SELECT COUNT(*) c FROM shops WHERE deleted_at IS NULL').c,
+    suspendedShops: one('SELECT COUNT(*) c FROM shops WHERE suspended = 1 AND deleted_at IS NULL').c,
+    openShops: one('SELECT COUNT(*) c FROM shops WHERE is_open = 1 AND suspended = 0 AND deleted_at IS NULL').c,
+    orders: one('SELECT COUNT(*) c FROM orders').c,
+    ordersToday: one('SELECT COUNT(*) c FROM orders WHERE substr(created_at, 1, 10) = ?', today).c,
+    activeOrders: one(`SELECT COUNT(*) c FROM orders WHERE ${ACTIVE_ORDER}`).c,
+    gmvMonth: one(`SELECT COALESCE(SUM(total), 0) t FROM orders WHERE status != 'cancelled' AND receive_date >= ?`, today.slice(0, 8) + '01').t,
+    reviews: one(`SELECT COUNT(*) c FROM feedback WHERE kind = 'review'`).c,
+    openFeedback: one(`SELECT COUNT(*) c FROM feedback WHERE shop_id IS NULL AND status = 'open'`).c,
+  };
+});
+
+route('GET', '/api/admin/shops', (ctx) => {
+  needAdmin(ctx);
+  const q = `%${str(ctx.query.q, { max: 60 })}%`;
+  const filter = ctx.query.filter === 'suspended' ? 'AND s.suspended = 1' : ctx.query.filter === 'closed' ? 'AND s.is_open = 0' : '';
+  const rows = db
+    .prepare(
+      `SELECT s.*, u.name owner_name, u.phone owner_phone,
+         (SELECT COUNT(*) FROM orders o WHERE o.shop_id = s.id) order_count,
+         (SELECT COUNT(*) FROM orders o WHERE o.shop_id = s.id AND o.${ACTIVE_ORDER}) active_count,
+         (SELECT COUNT(*) FROM products p WHERE p.shop_id = s.id AND p.archived = 0) product_count,
+         (SELECT ROUND(AVG(rating), 1) FROM feedback f WHERE f.shop_id = s.id AND f.kind = 'review') rating
+       FROM shops s JOIN users u ON u.id = s.owner_id
+       WHERE s.deleted_at IS NULL ${filter} AND (s.name LIKE ? OR s.slug LIKE ? OR u.name LIKE ? OR u.phone LIKE ?)
+       ORDER BY s.suspended DESC, s.created_at DESC LIMIT 300`
+    )
+    .all(q, q, q, q);
+  return {
+    shops: rows.map((s) => ({
+      id: s.id, slug: s.slug, name: s.name, category: s.category, province: s.province, district: s.district,
+      isOpen: !!s.is_open, suspended: !!s.suspended, suspendedReason: s.suspended_reason, createdAt: s.created_at,
+      owner: { id: s.owner_id, name: s.owner_name, phone: s.owner_phone },
+      orderCount: s.order_count, activeCount: s.active_count, productCount: s.product_count, rating: s.rating,
+    })),
+  };
+});
+
+function adminShop(ctx) {
+  const s = db.prepare('SELECT * FROM shops WHERE id = ? AND deleted_at IS NULL').get(Number(ctx.params.id));
+  if (!s) throw new HttpError(404, 'ไม่พบร้าน');
+  return s;
+}
+route('POST', '/api/admin/shops/:id/suspend', (ctx) => {
+  needAdmin(ctx);
+  const s = adminShop(ctx);
+  db.prepare('UPDATE shops SET suspended = 1, suspended_reason = ? WHERE id = ?').run(str(ctx.body.reason, { max: 200, label: 'เหตุผล' }), s.id);
+  return { ok: true };
+});
+route('POST', '/api/admin/shops/:id/unsuspend', (ctx) => {
+  needAdmin(ctx);
+  const s = adminShop(ctx);
+  db.prepare(`UPDATE shops SET suspended = 0, suspended_reason = '' WHERE id = ?`).run(s.id);
+  return { ok: true };
+});
+route('DELETE', '/api/admin/shops/:id', (ctx) => {
+  needAdmin(ctx);
+  const s = adminShop(ctx);
+  const reason = str(ctx.query.reason, { max: 200 }) || 'ร้านถูกปิดโดยผู้ดูแลระบบ';
+  tx(() => removeShop(s.id, 'admin', `ยกเลิกโดยระบบ: ${reason}`));
+  return { ok: true };
+});
+
+route('GET', '/api/admin/users', (ctx) => {
+  needAdmin(ctx);
+  const raw = str(ctx.query.q, { max: 60 });
+  const q = `%${/^[\d\s-]+$/.test(raw) && raw ? normalizePhone(raw) : raw}%`;
+  const filter = ctx.query.filter === 'banned' ? 'AND u.banned = 1' : ctx.query.filter === 'sellers' ? 'AND EXISTS (SELECT 1 FROM shops s WHERE s.owner_id = u.id AND s.deleted_at IS NULL)' : '';
+  const rows = db
+    .prepare(
+      `SELECT u.*,
+         (SELECT COUNT(*) FROM shops s WHERE s.owner_id = u.id AND s.deleted_at IS NULL) shop_count,
+         (SELECT COUNT(*) FROM orders o WHERE o.buyer_id = u.id) order_count
+       FROM users u WHERE u.deleted_at IS NULL ${filter} AND (u.name LIKE ? OR u.phone LIKE ?)
+       ORDER BY u.banned DESC, u.created_at DESC LIMIT 300`
+    )
+    .all(q, q);
+  return {
+    users: rows.map((u) => ({
+      id: u.id, name: u.name, phone: u.phone, createdAt: u.created_at, lastLoginAt: u.last_login_at,
+      banned: !!u.banned, bannedReason: u.banned_reason, isAdmin: ADMIN_PHONES.includes(u.phone),
+      shopCount: u.shop_count, orderCount: u.order_count, area: [u.district, u.province].filter(Boolean).join(' '),
+    })),
+  };
+});
+
+function adminTargetUser(ctx) {
+  const me = needUser(ctx);
+  const u = db.prepare('SELECT * FROM users WHERE id = ? AND deleted_at IS NULL').get(Number(ctx.params.id));
+  if (!u) throw new HttpError(404, 'ไม่พบผู้ใช้');
+  if (u.id === me.id) throw bad('จัดการบัญชีตัวเองจากหน้านี้ไม่ได้');
+  if (ADMIN_PHONES.includes(u.phone)) throw bad('จัดการบัญชีผู้ดูแลระบบคนอื่นไม่ได้');
+  return u;
+}
+route('POST', '/api/admin/users/:id/ban', (ctx) => {
+  needAdmin(ctx);
+  const u = adminTargetUser(ctx);
+  tx(() => {
+    db.prepare('UPDATE users SET banned = 1, banned_reason = ? WHERE id = ?').run(str(ctx.body.reason, { max: 200, label: 'เหตุผล' }), u.id);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+    // ร้านของคนที่ถูกแบน ระงับไปด้วย
+    db.prepare(`UPDATE shops SET suspended = 1, suspended_reason = 'เจ้าของบัญชีถูกระงับ' WHERE owner_id = ? AND deleted_at IS NULL`).run(u.id);
+  });
+  return { ok: true };
+});
+route('POST', '/api/admin/users/:id/unban', (ctx) => {
+  needAdmin(ctx);
+  const u = adminTargetUser(ctx);
+  tx(() => {
+    db.prepare(`UPDATE users SET banned = 0, banned_reason = '' WHERE id = ?`).run(u.id);
+    db.prepare(`UPDATE shops SET suspended = 0, suspended_reason = '' WHERE owner_id = ? AND suspended_reason = 'เจ้าของบัญชีถูกระงับ'`).run(u.id);
+  });
+  return { ok: true };
+});
+route('DELETE', '/api/admin/users/:id', (ctx) => {
+  needAdmin(ctx);
+  const u = adminTargetUser(ctx);
+  tx(() => removeUser(u.id, 'admin', 'ยกเลิกโดยระบบ: บัญชีถูกลบโดยผู้ดูแลระบบ'));
+  return { ok: true };
+});
+
+// รีวิว/ข้อความทั้งหมด (ทั้งถึงร้านและถึงทีม)
+route('GET', '/api/admin/reviews', (ctx) => {
+  needAdmin(ctx);
+  const q = `%${str(ctx.query.q, { max: 60 })}%`;
+  const kind = FEEDBACK_KINDS.includes(ctx.query.kind) ? ctx.query.kind : '';
+  const rows = db
+    .prepare(
+      `SELECT f.*, u.name user_name, u.phone user_phone, s.name shop_name, s.slug shop_slug
+       FROM feedback f JOIN users u ON u.id = f.user_id LEFT JOIN shops s ON s.id = f.shop_id
+       WHERE (? = '' OR f.kind = ?) AND (f.message LIKE ? OR u.name LIKE ? OR COALESCE(s.name, '') LIKE ?)
+       ORDER BY f.created_at DESC LIMIT 300`
+    )
+    .all(kind, kind, q, q, q);
+  return { feedback: rows.map((r) => ({ ...feedbackRow(r), shopSlug: r.shop_slug })) };
+});
+route('DELETE', '/api/admin/feedback/:id', (ctx) => {
+  needAdmin(ctx);
+  const r = db.prepare('DELETE FROM feedback WHERE id = ?').run(Number(ctx.params.id));
+  if (!r.changes) throw new HttpError(404, 'ไม่พบข้อความ');
+  return { ok: true };
 });

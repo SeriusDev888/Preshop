@@ -91,6 +91,13 @@
       });
     }
     renderShopHeader();
+    if (shop.suspended) {
+      const n = document.createElement('div');
+      n.className = 'wrap';
+      n.innerHTML = `<div class="notice bad" style="margin-top:12px"><b>ร้านนี้ถูกระงับโดยผู้ดูแลระบบ</b>${shop.suspendedReason ? ` — ${esc(shop.suspendedReason)}` : ''}<br>
+        ลูกค้าจะไม่เห็นร้านและสั่งไม่ได้ จัดการออเดอร์เดิมได้ตามปกติ หากคิดว่าผิดพลาด <a href="/feedback">ติดต่อทีม Preshop</a></div>`;
+      $('main').prepend(n);
+    }
     // สถานะร้านแบบกดปุ่มเดียว
     $('#statusCtl').onclick = async (e) => {
       const b = e.target.closest('button[data-mode]');
@@ -597,7 +604,31 @@
           <div class="row" style="position:sticky;bottom:0;background:#fff;padding:12px 0;border-top:1px solid var(--line)">
             <button class="btn primary lg">บันทึกการตั้งค่า</button>
           </div>
-        </form>`;
+        </form>
+
+        <section class="card danger-zone" style="margin-top:28px">
+          <h2 style="color:var(--bad)">ลบร้านนี้</h2>
+          <p class="small muted" style="margin:0 0 10px">ลบเมนู รีวิว และแชทของร้านถาวร ลิงก์ร้านจะใช้ไม่ได้ ประวัติออเดอร์เก่ายังเก็บไว้ในระบบ
+            ต้องไม่มีออเดอร์ที่ยังไม่เสร็จ · ถ้าแค่อยากหยุดพัก ใช้ “ปิดชั่วคราว” แทน</p>
+          <button type="button" class="btn danger" id="delShop">ลบร้าน “${esc(s.name)}”</button>
+        </section>`;
+
+      $('#delShop').onclick = () => {
+        const d = modal({
+          title: 'ลบร้านถาวร',
+          body: `<p style="margin-top:0">การลบ<b>ย้อนกลับไม่ได้</b> พิมพ์ชื่อร้าน <b>${esc(s.name)}</b> เพื่อยืนยัน</p><input type="text" id="delName" autocomplete="off">`,
+          actions: '<button class="btn" data-close>ยกเลิก</button><button class="btn danger" id="delOk" disabled>ลบร้านถาวร</button>',
+        });
+        d.querySelector('#delName').oninput = (e) => (d.querySelector('#delOk').disabled = e.target.value.trim() !== s.name);
+        d.querySelector('#delOk').onclick = (e) =>
+          busy(e.currentTarget, () => api('/api/my/shop?confirm=' + encodeURIComponent(s.name), { method: 'DELETE' }))
+            .then(() => {
+              const rest = me.shops.filter((x) => x.id !== s.id);
+              setCurrentShopId(rest[0]?.id || 0);
+              location.href = rest.length ? '/seller' : '/account';
+            })
+            .catch(toastErr);
+      };
 
       const renderChips = () => {
         $('#areaChips').innerHTML = areas.map((a, i) => `<span class="pill">${esc(a)}<button type="button" data-ai="${i}" aria-label="ลบ">×</button></span>`).join('') || '<span class="small muted">ยังไม่กำหนด = ส่งทุกพื้นที่ในระยะ</span>';

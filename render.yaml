@@ -1,0 +1,23 @@
+# Render Blueprint — กด "New > Blueprint" แล้วเลือก repo นี้ Render จะสร้างทุกอย่างให้
+services:
+  - type: web
+    name: preshop
+    runtime: node
+    plan: starter            # ดิสก์ถาวรใช้กับแผนเสียเงินเท่านั้น (Free ไม่มีดิสก์ ข้อมูลจะหาย)
+    region: singapore
+    buildCommand: "echo no build needed"
+    startCommand: "node server.js"
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /var/data
+      - key: ADMIN_PHONES
+        sync: false          # ใส่เบอร์ผู้ดูแลเองในหน้า Render
+    disk:
+      name: preshop-data
+      mountPath: /var/data
+      sizeGB: 1

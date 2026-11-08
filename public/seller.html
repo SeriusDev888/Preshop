@@ -1,0 +1,761 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>จัดการร้าน — Preshop</title>
+  <meta name="theme-color" content="#d62828">
+  <link rel="icon" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Preshop">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/v2.css">
+  <link rel="stylesheet" href="/css/v3.css">
+</head>
+<body>
+  <main style="padding-top:20px">
+    <div class="wrap dash">
+      <nav class="dash-nav" id="tabs">
+        <div class="shopname">
+          <span class="small muted shop-lbl">ร้านที่กำลังจัดการ</span>
+          <select id="shopSel" class="shop-switch" aria-label="เลือกร้าน"></select>
+          <div class="small shop-lbl" style="margin-top:6px"><a id="shopLink" target="_blank">ดูหน้าร้าน ↗</a></div>
+          <div class="status-ctl" id="statusCtl" role="radiogroup" aria-label="สถานะร้าน">
+            <button type="button" data-mode="open" role="radio"><i></i><span>เปิดรับออเดอร์<small>ลูกค้าสั่งได้ตามปกติ</small></span></button>
+            <button type="button" data-mode="today" role="radio"><i></i><span>ปิดรับวันนี้<small>เปิดเองอัตโนมัติพรุ่งนี้</small></span></button>
+            <button type="button" data-mode="closed" role="radio"><i></i><span>ปิดชั่วคราว<small>จนกว่าจะกดเปิด</small></span></button>
+          </div>
+        </div>
+        <button data-tab="overview">ภาพรวม</button>
+        <button data-tab="orders">ออเดอร์ <span class="badge-dot hidden" id="tabPending"></span></button>
+        <button data-tab="queue">คิวรับออเดอร์</button>
+        <button data-tab="production">ของที่ต้องทำ</button>
+        <button data-tab="delivery">ส่ง / รับของ</button>
+        <button data-tab="menu">เมนู</button>
+        <button data-tab="settings">ตั้งค่าร้าน</button>
+        <button data-tab="feedback">ความคิดเห็น</button>
+        <button data-href="/chat">แชทกับลูกค้า <span class="badge-dot hidden" id="tabChat"></span></button>
+      </nav>
+      <div id="panel"></div>
+    </div>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script type="module">
+    import {
+      $, $$, api, esc, baht, renderChrome, requireLogin, toast, toastErr, busy, modal, confirmBox, promptBox,
+      fmtDate, fmtDateTime, relDay, todayTH, addDays, statusPill, payPill, fulfillPill, STATUS, PAY, TH_DAYS_SHORT,
+      contactLinks, mapsLink, imgOrPh, uploadImage, fmtPhone, CONTACTS, currentShopId, setCurrentShopId, feeRule, freeRule, feeAt, animate, openChat,
+    } from '/js/common.js';
+    import { CATEGORIES } from '/js/icons.js';
+    import { PROVINCES, reverseGeocode, areaLabel } from '/js/thai.js';
+
+    await renderChrome('seller');
+    const me = await requireLogin();
+    if (!me.shops.length) location.href = '/account#open-shop';
+    let shop = me.shops.find((s) => s.id === currentShopId()) || me.shops[0];
+    setCurrentShopId(shop.id);
+
+    $('#shopSel').innerHTML = me.shops.map((s) => `<option value="${s.id}" ${s.id === shop.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('') + '<option value="new">+ เปิดร้านใหม่</option>';
+    $('#shopSel').onchange = (e) => {
+      if (e.target.value === 'new') {
+        location.href = '/account#open-shop';
+        return;
+      }
+      setCurrentShopId(e.target.value);
+      location.reload();
+    };
+
+    const TABS = ['overview', 'orders', 'queue', 'production', 'delivery', 'menu', 'settings', 'feedback'];
+    let tab = '';
+    const state = {
+      prodDate: todayTH(),
+      delivDate: todayTH(),
+      orderFilter: { status: 'active', payment: '', date: '', q: '', sort: 'receive' },
+    };
+
+    function renderShopHeader() {
+      $('#shopSel').querySelector(`option[value="${shop.id}"]`).textContent = shop.name;
+      $('#shopLink').href = '/s/' + shop.slug;
+      $$('#statusCtl button').forEach((b) => {
+        const on = b.dataset.mode === shop.statusMode;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-checked', on);
+      });
+    }
+    renderShopHeader();
+    // สถานะร้านแบบกดปุ่มเดียว
+    $('#statusCtl').onclick = async (e) => {
+      const b = e.target.closest('button[data-mode]');
+      if (!b || b.dataset.mode === shop.statusMode) return;
+      try {
+        ({ shop } = await api('/api/my/shop/status', { method: 'POST', body: { mode: b.dataset.mode } }));
+        renderShopHeader();
+        animate(b, 'pop');
+        toast({ open: 'เปิดรับออเดอร์แล้ว', today: 'ปิดรับวันนี้แล้ว พรุ่งนี้เปิดรับเองอัตโนมัติ', closed: 'ปิดรับชั่วคราวแล้ว (ลูกค้ายังดูเมนูและแชทได้)' }[shop.statusMode], 'ok');
+        if (tab === 'queue' || tab === 'overview') route();
+      } catch (err) {
+        toastErr(err);
+      }
+    };
+
+    $('#tabs').onclick = (e) => {
+      const h = e.target.closest('button[data-href]');
+      if (h) return (location.href = h.dataset.href);
+      const b = e.target.closest('button[data-tab]');
+      if (b) location.hash = b.dataset.tab;
+    };
+    if (me.chatUnread) { $('#tabChat').textContent = me.chatUnread; $('#tabChat').classList.remove('hidden'); }
+    window.addEventListener('hashchange', route);
+    function route() {
+      const t = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'overview';
+      tab = t;
+      $$('#tabs button[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
+      ({ overview, orders, queue, production, delivery, menu, settings, feedback })[t]().catch(toastErr);
+    }
+
+    // ═════════ คิวรับออเดอร์ (ปฏิทิน) ═════════
+    async function queue() {
+      const cal = await api('/api/my/calendar');
+      const W = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
+      const today = todayTH();
+      const LBL = { open: ['state-on', 'รับออเดอร์'], full: ['state-off', 'คิวเต็ม'], closed: ['state-off', 'ร้านหยุด'], soon: ['state-off', 'ปิดรับแล้ว'], far: ['state-off', 'ไกลเกินไป'] };
+      $('#panel').innerHTML = `
+        <div class="row between"><h1 style="margin:0">คิวรับออเดอร์</h1></div>
+        <p class="muted" style="margin:6px 0 14px">กด <b>“ตั้งว่าเต็ม”</b> วันที่ทำไม่ทัน ลูกค้าจะเลือกวันนั้นไม่ได้ทันที ออเดอร์ที่รับไว้แล้วยังอยู่ครบ</p>
+        <div class="card soft" style="margin-bottom:16px">
+          <form id="qset" class="form-grid" style="align-items:end">
+            <label class="field"><span>รับออเดอร์ได้สูงสุดต่อวัน</span><input type="number" name="dailyOrderLimit" min="1" value="${cal.limit ?? ''}" placeholder="ไม่จำกัด"><span class="field-hint">ครบแล้วระบบปิดวันนั้นให้อัตโนมัติ</span></label>
+            <label class="field"><span>รับออเดอร์ของวันถึงกี่โมง</span><input type="time" name="orderCutoffTime" value="${cal.cutoff}"><span class="field-hint">สั่งหลังเวลานี้ นับเป็นสั่งวันถัดไป</span></label>
+            <div><button class="btn dark">บันทึก</button></div>
+          </form>
+        </div>
+        <div class="qgrid">${cal.days.map((d) => {
+          const dt = new Date(d.date + 'T00:00:00Z');
+          const [cls, lbl] = LBL[d.status];
+          const pct = cal.limit ? Math.min(100, Math.round((d.orders / cal.limit) * 100)) : Math.min(100, d.orders * 10);
+          const blocked = d.status === 'closed';
+          return `<div class="qday ${d.status === 'full' ? 'full' : ''} ${blocked ? 'closed' : ''} ${d.date === today ? 'today' : ''}" data-date="${d.date}">
+            <div class="top"><span class="d">${W[dt.getUTCDay()]} ${dt.getUTCDate()}/${dt.getUTCMonth() + 1}</span>${d.date === today ? '<span class="small muted">วันนี้</span>' : ''}</div>
+            <div class="row between" style="align-items:flex-end"><span><span class="cnt">${d.orders}</span><span class="small muted">${cal.limit ? `/${cal.limit}` : ''} ออเดอร์</span></span></div>
+            <div class="bar"><i style="width:${pct}%"></i></div>
+            <span class="${cls}" style="align-self:flex-start">${lbl}</span>
+            ${d.status === 'soon' ? '<span class="small muted">เลยเวลารับออเดอร์ของวันนี้แล้ว</span>'
+              : d.weeklyOff ? '<span class="small muted">หยุดประจำสัปดาห์</span>'
+              : d.holiday ? '<button class="btn sm" data-act="unholiday">ยกเลิกวันหยุด</button>'
+              : d.manualFull ? '<button class="btn sm" data-act="unfull">เปิดรับวันนี้อีก</button>'
+              : `<div class="row" style="gap:4px"><button class="btn sm dark" data-act="full">ตั้งว่าเต็ม</button><button class="btn sm ghost" data-act="holiday">หยุด</button></div>`}
+            ${d.orders ? `<a class="small" href="#production" data-go="${d.date}">ดูของที่ต้องทำ</a>` : ''}
+          </div>`;
+        }).join('')}</div>`;
+      $('#qset').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const fd = Object.fromEntries(new FormData(e.target));
+        busy(e.submitter, () => api('/api/my/shop', { method: 'PUT', body: { dailyOrderLimit: fd.dailyOrderLimit || null, orderCutoffTime: fd.orderCutoffTime } }))
+          .then((r) => { shop = r.shop; toast('บันทึกแล้ว', 'ok'); queue(); })
+          .catch(toastErr);
+      });
+      $$('.qday [data-act]').forEach((b) => (b.onclick = async () => {
+        const date = b.closest('.qday').dataset.date;
+        try {
+          await busy(b, () => api('/api/my/calendar/day', { method: 'POST', body: { date, action: b.dataset.act } }));
+          toast({ full: `ตั้ง ${fmtDate(date)} ว่าคิวเต็มแล้ว`, unfull: `เปิดรับ ${fmtDate(date)} อีกครั้ง`, holiday: `ตั้ง ${fmtDate(date)} เป็นวันหยุด`, unholiday: `ยกเลิกวันหยุด ${fmtDate(date)}` }[b.dataset.act], 'ok');
+          queue();
+        } catch (err) { toastErr(err); }
+      }));
+      $$('.qday [data-go]').forEach((a) => (a.onclick = () => { state.prodDate = a.dataset.go; }));
+    }
+
+    // ═════════ ภาพรวม ═════════
+    async function overview() {
+      const s = await api('/api/my/summary');
+      const max = Math.max(1, ...s.days.map((d) => d.total));
+      const setupMissing = [];
+      if (shop.lat == null && shop.deliveryEnabled) setupMissing.push('ปักหมุดตำแหน่งร้าน (ใช้คำนวณระยะส่ง)');
+      if (!shop.address) setupMissing.push('ที่อยู่ร้าน / จุดรับของ');
+      if (shop.transferEnabled && !shop.promptpayId && !shop.bankInfo) setupMissing.push('พร้อมเพย์หรือเลขบัญชี');
+      const prodCount = (await api('/api/my/products')).products.length;
+      if (!prodCount) setupMissing.push('เพิ่มเมนูอย่างน้อย 1 รายการ');
+
+      $('#panel').innerHTML = `
+        <div class="row between"><h1 style="margin:0">ภาพรวม</h1><span class="muted small">${fmtDate(s.today)}</span></div>
+        ${setupMissing.length ? `<div class="notice warn" style="margin:14px 0"><b>ตั้งค่าร้านยังไม่ครบ</b><ul style="margin:6px 0 8px;padding-left:20px">${setupMissing.map((m) => `<li>${m}</li>`).join('')}</ul>
+          <a class="btn sm" href="#${prodCount ? 'settings' : 'menu'}">ไปตั้งค่า</a></div>` : ''}
+        <div class="stats" style="margin-top:14px">
+          <a class="stat ${s.pending ? 'hot' : ''}" href="#orders" style="text-decoration:none;color:inherit" data-filter="pending"><div class="k">รอยืนยัน</div><div class="v">${s.pending}</div><div class="s">ออเดอร์ใหม่ที่ต้องกดรับ</div></a>
+          <a class="stat ${s.slipsToReview ? 'hot' : ''}" href="#orders" style="text-decoration:none;color:inherit" data-filter="slip"><div class="k">สลิปรอตรวจ</div><div class="v">${s.slipsToReview}</div><div class="s">ลูกค้าแนบสลิปแล้ว</div></a>
+          <a class="stat" href="#production" style="text-decoration:none;color:inherit"><div class="k">ต้องส่ง/รับวันนี้</div><div class="v">${s.todayOrders}</div><div class="s">พรุ่งนี้ ${s.tomorrowOrders} ออเดอร์</div></a>
+          <div class="stat"><div class="k">ยังไม่ได้รับเงิน</div><div class="v num">${baht(s.unpaidTotal)}</div><div class="s">${s.unpaidCount} ออเดอร์</div></div>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+          <div class="row between"><h3 style="margin:0">ออเดอร์ 14 วันข้างหน้า (ตามวันรับ)</h3><span class="small muted">กดแท่งเพื่อดูของที่ต้องทำ</span></div>
+          <div class="bars">${s.days.map((d) => `<button class="b ${d.date === s.today ? 'today' : ''}" data-date="${d.date}" title="${fmtDate(d.date)}: ${d.orders} ออเดอร์ ${baht(d.total)}">
+            ${d.orders ? `<em>${d.orders}</em>` : ''}<i style="height:${Math.round((d.total / max) * 100)}%"></i><span>${+d.date.slice(8)}</span></button>`).join('')}</div>
+        </div>
+
+        <div class="grid-2" style="margin-top:16px;align-items:start">
+          <div class="card">
+            <h3>เดือนนี้</h3>
+            <dl class="kv" style="grid-template-columns:140px 1fr">
+              <dt>ยอดสั่ง</dt><dd class="num"><b>${baht(s.monthTotal)}</b> (${s.monthOrders} ออเดอร์)</dd>
+              <dt>รับเงินแล้ว</dt><dd class="num">${baht(s.monthPaid)}</dd>
+              <dt>รวมสำเร็จทั้งหมด</dt><dd class="num">${baht(s.completedTotal)} (${s.completedOrders})</dd>
+            </dl>
+            <div class="row" style="margin-top:12px">
+              <a class="btn sm" href="/api/my/orders.csv?shop=${shop.id}&from=${s.today.slice(0, 8)}01&to=${s.today.slice(0, 8)}31">ดาวน์โหลดออเดอร์เดือนนี้ (Excel/CSV)</a>
+            </div>
+          </div>
+          <div class="card">
+            <h3>เมนูขายดีเดือนนี้</h3>
+            ${s.topProducts.length ? `<table class="t"><tbody>${s.topProducts.map((p) => `<tr><td>${esc(p.name)}</td><td class="r num">${p.qty} ${esc(p.unit)}</td><td class="r num">${baht(p.amount)}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">ยังไม่มีข้อมูล</p>'}
+          </div>
+        </div>`;
+
+      $$('.bars .b').forEach((b) => (b.onclick = () => { state.prodDate = b.dataset.date; location.hash = 'production'; }));
+      $$('[data-filter]').forEach((a) => (a.onclick = () => {
+        state.orderFilter = { ...state.orderFilter, status: a.dataset.filter === 'pending' ? 'pending' : 'active', payment: a.dataset.filter === 'slip' ? 'pending_review' : '', date: '' };
+      }));
+    }
+
+    // ═════════ การ์ดออเดอร์ (ใช้ร่วมกันหลายแท็บ) ═════════
+    const NEXT_LABEL = { confirmed: 'รับออเดอร์', preparing: 'เริ่มทำ', ready: 'ทำเสร็จแล้ว', delivering: 'ออกไปส่ง', completed: 'ส่งมอบแล้ว', cancelled: 'ยกเลิก' };
+
+    function orderCard(o, { open = false } = {}) {
+      return `<article class="ocard ${o.status === 'pending' ? 'is-pending' : ''}" data-code="${esc(o.code)}">
+        <div class="oh" data-toggle>
+          <div>
+            <div class="row" style="gap:8px"><b class="num">${esc(o.code)}</b>${statusPill(o.status)}${payPill(o.paymentStatus, o.paymentMethod)}</div>
+            <div class="small" style="margin-top:2px">${fulfillPill(o.fulfillment)} <b>${fmtDate(o.receiveDate)} ${o.receiveTime}</b> ${relDay(o.receiveDate) ? `<span class="pill warn">${relDay(o.receiveDate)}</span>` : ''} · ${esc(o.recipientName)}</div>
+          </div>
+          <div style="text-align:right"><b class="num">${baht(o.total)}</b><div class="small muted">${o.items.reduce((s, i) => s + i.qty, 0)} ชิ้น</div></div>
+        </div>
+        <div class="${open ? '' : 'hidden'}" data-body>
+          <div class="ob">
+            <div>
+              <div class="field-label">รายการ</div>
+              ${o.items.map((i) => `<div><b>${i.qty}</b> ${esc(i.unit)} × ${esc(i.name)}${i.note ? ` <span class="muted">— ${esc(i.note)}</span>` : ''}</div>`).join('')}
+              <div class="small muted" style="margin-top:6px">ค่าขนม ${baht(o.subtotal)}${o.fulfillment === 'delivery' ? ` + ค่าส่ง ${baht(o.deliveryFee)}` : ''}</div>
+              ${o.buyerNote ? `<div class="notice" style="margin-top:8px;padding:8px 10px"><b>ลูกค้าฝาก:</b> ${esc(o.buyerNote)}</div>` : ''}
+            </div>
+            <dl class="kv">
+              <dt>ผู้รับ</dt><dd>${esc(o.recipientName)}<br><a href="tel:${esc(o.recipientPhone)}">${fmtPhone(o.recipientPhone)}</a></dd>
+              ${o.fulfillment === 'delivery' ? `<dt>ส่งที่</dt><dd>${esc(o.address)}${o.area ? ` (${esc(o.area)})` : ''}<br><a href="${mapsLink(o.lat, o.lng)}" target="_blank" rel="noopener">นำทาง</a> · ${o.distanceKm?.toFixed(1)} กม.</dd>` : '<dt>รับที่</dt><dd>หน้าร้าน</dd>'}
+              ${o.purpose ? `<dt>โอกาส</dt><dd>${esc(o.purpose)}</dd>` : ''}
+              <dt>ชำระ</dt><dd>${o.paymentMethod === 'cod' ? 'ปลายทาง' : 'โอน'}${o.slipImage ? ` · <a href="${esc(o.slipImage)}" target="_blank">ดูสลิป</a>` : ''}</dd>
+              <dt>สั่งเมื่อ</dt><dd>${fmtDateTime(o.createdAt)}</dd>
+              ${o.cancelReason ? `<dt>เหตุยกเลิก</dt><dd>${esc(o.cancelReason)}</dd>` : ''}
+            </dl>
+          </div>
+          <div style="padding:0 16px 12px">
+            <label class="field"><span>โน้ตของร้าน (ลูกค้าไม่เห็น)</span><input type="text" maxlength="500" value="${esc(o.sellerNote || '')}" data-note placeholder="เช่น โอนแล้วแต่ยอดขาด 10 บาท"></label>
+          </div>
+          <div class="oa">
+            ${o.nextStatuses.filter((s) => s !== 'cancelled').map((s) => `<button class="btn primary sm" data-status="${s}">${NEXT_LABEL[s]}</button>`).join('')}
+            ${o.paymentStatus !== 'paid' && o.status !== 'cancelled' ? `<button class="btn sm" data-pay="paid">${o.paymentStatus === 'pending_review' ? 'สลิปถูกต้อง · ' : ''}ได้รับเงินแล้ว</button>` : ''}
+            ${o.paymentStatus === 'pending_review' ? '<button class="btn sm" data-pay="unpaid">สลิปไม่ถูกต้อง</button>' : ''}
+            ${o.paymentStatus === 'paid' ? `<button class="btn ghost sm" data-pay="${o.status === 'cancelled' ? 'refunded' : 'unpaid'}">${o.status === 'cancelled' ? 'คืนเงินแล้ว' : 'ยกเลิกสถานะชำระ'}</button>` : ''}
+            <button class="btn dark sm" data-chat="${esc(o.code)}">แชทกับลูกค้า</button>
+            <a class="btn ghost sm" href="/o/${esc(o.code)}" target="_blank">ดูแบบลูกค้า</a>
+            ${o.nextStatuses.includes('cancelled') ? '<button class="btn danger sm" data-status="cancelled" style="margin-left:auto">ยกเลิกออเดอร์</button>' : ''}
+          </div>
+        </div>
+      </article>`;
+    }
+
+    // จัดการคลิกในการ์ดออเดอร์
+    $('#panel').addEventListener('click', async (e) => {
+      const card = e.target.closest('.ocard');
+      if (!card) return;
+      const code = card.dataset.code;
+      if (e.target.closest('[data-toggle]')) {
+        card.querySelector('[data-body]').classList.toggle('hidden');
+        return;
+      }
+      const cb = e.target.closest('[data-chat]');
+      if (cb) return openChat({ orderCode: cb.dataset.chat });
+      const sb = e.target.closest('[data-status]');
+      const pb = e.target.closest('[data-pay]');
+      try {
+        if (sb) {
+          const to = sb.dataset.status;
+          let note = '';
+          if (to === 'cancelled') {
+            note = await promptBox('ยกเลิกออเดอร์ ' + code, 'แจ้งเหตุผลให้ลูกค้า', { okLabel: 'ยกเลิกออเดอร์', danger: true, placeholder: 'เช่น วัตถุดิบหมด' });
+            if (note === null) return;
+          }
+          await busy(sb, () => api(`/api/my/orders/${encodeURIComponent(code)}/status`, { method: 'POST', body: { status: to, note } }));
+          toast(`${code}: ${STATUS[to].th}`, 'ok');
+          refreshTab();
+        } else if (pb) {
+          await busy(pb, () => api(`/api/my/orders/${encodeURIComponent(code)}/payment`, { method: 'POST', body: { paymentStatus: pb.dataset.pay } }));
+          toast(`${code}: ${PAY[pb.dataset.pay].th}`, 'ok');
+          refreshTab();
+        }
+      } catch (err) { toastErr(err); }
+    });
+    $('#panel').addEventListener('change', async (e) => {
+      if (!e.target.matches('[data-note]')) return;
+      const code = e.target.closest('.ocard').dataset.code;
+      try {
+        await api(`/api/my/orders/${encodeURIComponent(code)}/note`, { method: 'PUT', body: { note: e.target.value } });
+        toast('บันทึกโน้ตแล้ว');
+      } catch (err) { toastErr(err); }
+    });
+
+    // เก็บการ์ดที่เปิดอยู่ไว้หลังรีเฟรช
+    async function refreshTab() {
+      const open = $$('.ocard').filter((c) => !c.querySelector('[data-body]').classList.contains('hidden')).map((c) => c.dataset.code);
+      const y = scrollY;
+      await ({ overview, orders, queue, production, delivery, menu, settings, feedback })[tab]();
+      open.forEach((c) => $(`.ocard[data-code="${CSS.escape(c)}"] [data-body]`)?.classList.remove('hidden'));
+      scrollTo(0, y);
+      poll();
+    }
+
+    // ═════════ ออเดอร์ ═════════
+    async function orders() {
+      const f = state.orderFilter;
+      if (!$('#orderList')) {
+        $('#panel').innerHTML = `
+          <div class="row between"><h1 style="margin:0">ออเดอร์</h1><a class="btn sm" id="csv">ดาวน์โหลด CSV</a></div>
+          <div class="filters" style="margin-top:14px">
+            <input type="search" id="oq" placeholder="ค้นหา รหัส / ชื่อ / เบอร์">
+            <select id="ost"><option value="active">กำลังดำเนินการ</option><option value="">ทุกสถานะ</option>${Object.entries(STATUS).map(([k, v]) => `<option value="${k}">${v.th}</option>`).join('')}</select>
+            <select id="opay"><option value="">การชำระ: ทั้งหมด</option>${Object.entries(PAY).map(([k, v]) => `<option value="${k}">${v.th}</option>`).join('')}</select>
+            <input type="date" id="odate" title="วันรับ">
+            <select id="osort"><option value="receive">เรียงตามวันรับ</option><option value="created">เรียงตามเวลาสั่งล่าสุด</option></select>
+          </div>
+          <div id="orderList"></div>`;
+        $('#oq').value = f.q; $('#ost').value = f.status; $('#opay').value = f.payment; $('#odate').value = f.date; $('#osort').value = f.sort;
+        const upd = () => {
+          state.orderFilter = { q: $('#oq').value, status: $('#ost').value, payment: $('#opay').value, date: $('#odate').value, sort: $('#osort').value };
+          orders().catch(toastErr);
+        };
+        ['ost', 'opay', 'odate', 'osort'].forEach((id) => ($('#' + id).onchange = upd));
+        let t; $('#oq').oninput = () => { clearTimeout(t); t = setTimeout(upd, 300); };
+      }
+      const qs = new URLSearchParams(Object.entries(state.orderFilter).filter(([, v]) => v));
+      $('#csv').href = `/api/my/orders.csv?shop=${shop.id}` + (state.orderFilter.date ? `&from=${state.orderFilter.date}&to=${state.orderFilter.date}` : '');
+      const { orders: list } = await api('/api/my/orders?' + qs);
+      $('#orderList').innerHTML = list.length ? list.map((o) => orderCard(o, { open: o.status === 'pending' })).join('') : '<div class="empty">ไม่มีออเดอร์ตามเงื่อนไขนี้</div>';
+    }
+
+    // ═════════ ของที่ต้องทำ ═════════
+    async function production() {
+      const d = state.prodDate;
+      const r = await api('/api/my/production?date=' + d);
+      const total = r.products.reduce((s, p) => s + p.total, 0);
+      $('#panel').innerHTML = `
+        <div class="row between"><h1 style="margin:0">ของที่ต้องทำ</h1><button class="btn sm no-print" onclick="print()">พิมพ์</button></div>
+        <div class="row no-print" style="margin:14px 0">
+          <button class="btn sm" data-d="-1">‹</button>
+          <input type="date" id="pdate" value="${d}" style="width:auto">
+          <button class="btn sm" data-d="1">›</button>
+          <button class="btn ghost sm" data-today>วันนี้</button>
+          <button class="btn ghost sm" data-tomorrow>พรุ่งนี้</button>
+        </div>
+        <p><b>${fmtDate(d)}</b> ${relDay(d) ? `<span class="pill">${relDay(d)}</span>` : ''} · รวม ${r.products.length} เมนู ${total} ชิ้น</p>
+        ${r.products.length ? `<div class="card" style="padding:0">${r.products.map((p) => `
+          <div class="prod-row">
+            <div><b style="font-size:1.1rem">${esc(p.name)}</b><div class="small muted">${p.orders.length} ออเดอร์ · ทำเสร็จแล้ว ${p.done}/${p.total}</div>
+              <div class="meter"><i style="width:${Math.round((p.done / p.total) * 100)}%"></i></div></div>
+            <div class="big">${p.total}<div class="small muted" style="font-weight:400">${esc(p.unit)}</div></div>
+            <details ${p.orders.some((o) => o.note) ? 'open' : ''}><summary>แยกตามออเดอร์</summary>
+              <table class="t" style="margin-top:6px"><tbody>${p.orders.map((o) => `<tr>
+                <td class="num" style="white-space:nowrap">${o.time}</td><td><b>${o.qty}</b></td>
+                <td>${esc(o.name)} <span class="muted small num">${esc(o.code)}</span>${o.note ? `<div style="color:var(--brand-ink)">※ ${esc(o.note)}</div>` : ''}</td>
+                <td>${fulfillPill(o.fulfillment)}</td><td>${statusPill(o.status)}</td></tr>`).join('')}</tbody></table>
+            </details>
+          </div>`).join('')}</div>` : '<div class="empty">ไม่มีออเดอร์สำหรับวันนี้</div>'}`;
+      const go = (nd) => { state.prodDate = nd; production().catch(toastErr); };
+      $('#pdate').onchange = (e) => e.target.value && go(e.target.value);
+      $$('[data-d]').forEach((b) => (b.onclick = () => go(addDays(d, +b.dataset.d))));
+      $('[data-today]').onclick = () => go(todayTH());
+      $('[data-tomorrow]').onclick = () => go(addDays(todayTH(), 1));
+    }
+
+    // ═════════ ส่ง / รับของ ═════════
+    async function delivery() {
+      const d = state.delivDate;
+      const { orders: list } = await api(`/api/my/orders?date=${d}`);
+      const active = list.filter((o) => o.status !== 'cancelled');
+      const del = active.filter((o) => o.fulfillment === 'delivery');
+      const pick = active.filter((o) => o.fulfillment === 'pickup');
+      const cash = active.filter((o) => o.paymentStatus !== 'paid').reduce((s, o) => s + o.total, 0);
+      $('#panel').innerHTML = `
+        <div class="row between"><h1 style="margin:0">ส่ง / รับของ</h1><button class="btn sm no-print" onclick="print()">พิมพ์ใบงาน</button></div>
+        <div class="row no-print" style="margin:14px 0">
+          <button class="btn sm" data-d="-1">‹</button><input type="date" id="ddate" value="${d}" style="width:auto"><button class="btn sm" data-d="1">›</button>
+          <button class="btn ghost sm" data-today>วันนี้</button>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="k">ต้องไปส่ง</div><div class="v">${del.length}</div><div class="s">ส่งแล้ว ${del.filter((o) => o.status === 'completed').length}</div></div>
+          <div class="stat"><div class="k">ลูกค้ามารับ</div><div class="v">${pick.length}</div><div class="s">รับแล้ว ${pick.filter((o) => o.status === 'completed').length}</div></div>
+          <div class="stat ${cash ? 'hot' : ''}"><div class="k">ต้องเก็บเงินเพิ่ม</div><div class="v num">${baht(cash)}</div><div class="s">ยังไม่ชำระ/รอตรวจสลิป</div></div>
+        </div>
+        <div class="section-title"><h2>จัดส่ง (${del.length})</h2>${del.length > 1 ? `<a class="small" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/${shop.lat},${shop.lng}/${del.filter((o) => o.status !== 'completed').map((o) => `${o.lat},${o.lng}`).join('/')}">เปิดเส้นทางทั้งหมดใน Google Maps</a>` : ''}</div>
+        ${del.length ? del.map((o) => orderCard(o, { open: o.status !== 'completed' })).join('') : '<div class="empty">ไม่มี</div>'}
+        <div class="section-title"><h2>มารับเอง (${pick.length})</h2></div>
+        ${pick.length ? pick.map((o) => orderCard(o, { open: o.status !== 'completed' })).join('') : '<div class="empty">ไม่มี</div>'}`;
+      const go = (nd) => { state.delivDate = nd; delivery().catch(toastErr); };
+      $('#ddate').onchange = (e) => e.target.value && go(e.target.value);
+      $$('[data-d]').forEach((b) => (b.onclick = () => go(addDays(d, +b.dataset.d))));
+      $('[data-today]').onclick = () => go(todayTH());
+    }
+
+    // ═════════ เมนู ═════════
+    async function menu() {
+      const { products } = await api('/api/my/products');
+      $('#panel').innerHTML = `
+        <div class="row between"><h1 style="margin:0">เมนู</h1><button class="btn primary" id="addP">+ เพิ่มเมนู</button></div>
+        <p class="muted small" style="margin-top:6px">กำหนดราคา หน่วย (ถ้วย/กล่อง/ชุด) จำนวนที่รับได้ต่อวัน และระยะ/พื้นที่ส่งของแต่ละเมนูได้</p>
+        <div class="prod-list" style="margin-top:14px">${products.length ? products.map((p) => `
+          <div class="prod-item ${p.isActive ? '' : 'off'}" data-id="${p.id}">
+            ${imgOrPh(p.image, p.name, 'thumb', shop.category)}
+            <div>
+              <b>${esc(p.name)}</b> ${p.isActive ? '<span class="state-on">กำลังขาย</span>' : '<span class="state-off">ซ่อนจากหน้าร้าน</span>'} ${p.category ? `<span class="pill grey">${esc(p.category)}</span>` : ''}
+              <div class="small num">${baht(p.price)} / ${esc(p.unit)}${p.minQty > 1 ? ` · ขั้นต่ำ ${p.minQty}` : ''}${p.dailyLimit ? ` · วันละไม่เกิน ${p.dailyLimit}` : ''}</div>
+              <div class="small muted">${[
+                p.leadDays != null ? `ล่วงหน้า ${p.leadDays} วัน` : '',
+                p.deliveryAllowed ? `ส่ง ≤ ${p.deliveryRadiusKm ?? shop.defaultRadiusKm} กม.${p.deliveryRadiusKm == null ? ' (ค่าร้าน)' : ''}` : 'ไม่ส่ง',
+                p.pickupAllowed ? 'รับเองได้' : 'ไม่รับเอง',
+                p.allowedAreas.length ? `เฉพาะ ${p.allowedAreas.join(', ')}` : '',
+              ].filter(Boolean).map(esc).join(' · ')}</div>
+            </div>
+            <div class="row" style="gap:4px;flex-direction:column;align-items:stretch">
+              <button class="btn sm" data-edit>แก้ไข</button>
+              <label class="switch" title="แสดง/ซ่อนในหน้าร้าน"><input type="checkbox" data-toggle-active ${p.isActive ? 'checked' : ''}><span class="track"></span></label>
+            </div>
+          </div>`).join('') : '<div class="empty">ยังไม่มีเมนู กด “เพิ่มเมนู” เพื่อเริ่ม</div>'}</div>`;
+      $('#addP').onclick = () => productEditor();
+      $$('.prod-item').forEach((el) => {
+        const p = products.find((x) => x.id === +el.dataset.id);
+        el.querySelector('[data-edit]').onclick = () => productEditor(p);
+        el.querySelector('[data-toggle-active]').onchange = async () => {
+          try {
+            await api('/api/my/products/' + p.id, { method: 'PUT', body: { isActive: !p.isActive } });
+            menu();
+          } catch (err) { toastErr(err); }
+        };
+      });
+    }
+
+    function productEditor(p) {
+      const v = p || { name: '', description: '', category: '', price: '', unit: 'ถ้วย', image: null, isActive: true, minQty: 1, dailyLimit: null, leadDays: null, deliveryAllowed: true, pickupAllowed: true, deliveryRadiusKm: null, allowedAreas: [], sort: 0 };
+      let image = v.image;
+      const d = modal({
+        title: p ? 'แก้ไขเมนู' : 'เพิ่มเมนู',
+        body: `<form id="pf" class="stack">
+          <div class="img-pick"><span id="pimg">${imgOrPh(image, v.name || '+', 'preview', shop.category)}</span>
+            <div><label class="btn sm">เลือกรูป<input type="file" accept="image/*" id="pfile" hidden></label> <button type="button" class="btn ghost sm" id="pclear">ลบรูป</button><div class="field-hint">รูปจะถูกย่อให้อัตโนมัติ</div></div></div>
+          <label class="field"><span>ชื่อเมนู *</span><input type="text" name="name" maxlength="80" required value="${esc(v.name)}" placeholder="เช่น บัวลอยไข่หวาน"></label>
+          <label class="field"><span>คำอธิบาย</span><textarea name="description" maxlength="500" placeholder="ส่วนผสม รสชาติ ขนาด">${esc(v.description)}</textarea></label>
+          <div class="form-grid">
+            <label class="field"><span>ราคา (บาท) *</span><input type="number" name="price" min="0" step="0.5" required value="${v.price}"></label>
+            <label class="field"><span>หน่วย</span><input type="text" name="unit" maxlength="20" value="${esc(v.unit)}" list="units"></label>
+            <label class="field"><span>หมวด</span><input type="text" name="category" maxlength="40" value="${esc(v.category)}" placeholder="เช่น ขนมน้ำ"></label>
+            <label class="field"><span>ลำดับแสดง</span><input type="number" name="sort" value="${v.sort}"></label>
+          </div>
+          <datalist id="units"><option>ถ้วย</option><option>กล่อง</option><option>ชิ้น</option><option>ชุด</option><option>ถาด</option><option>ห่อ</option><option>กิโลกรัม</option></datalist>
+          <fieldset><legend>เงื่อนไขการสั่ง</legend><div class="form-grid">
+            <label class="field"><span>สั่งขั้นต่ำ</span><input type="number" name="minQty" min="1" value="${v.minQty}"></label>
+            <label class="field"><span>รับได้ต่อวันไม่เกิน</span><input type="number" name="dailyLimit" min="1" value="${v.dailyLimit ?? ''}" placeholder="ไม่จำกัด"></label>
+            <label class="field"><span>ต้องสั่งล่วงหน้า (วัน)</span><input type="number" name="leadDays" min="0" value="${v.leadDays ?? ''}" placeholder="ตามร้าน (${shop.minLeadDays})"></label>
+          </div></fieldset>
+          <fieldset><legend>การส่ง / รับ</legend>
+            <label class="check"><input type="checkbox" name="deliveryAllowed" ${v.deliveryAllowed ? 'checked' : ''}><span>จัดส่งได้</span></label>
+            <label class="check"><input type="checkbox" name="pickupAllowed" ${v.pickupAllowed ? 'checked' : ''}><span>ลูกค้ามารับเองได้</span></label>
+            <div class="form-grid" style="margin-top:8px">
+              <label class="field"><span>ส่งได้ไม่เกิน (กม. จากร้าน)</span><input type="number" name="deliveryRadiusKm" min="0" step="0.5" value="${v.deliveryRadiusKm ?? ''}" placeholder="ตามร้าน (${shop.defaultRadiusKm})"><span class="field-hint">เช่น ขนมน้ำที่เสียง่ายส่งแค่ 3 กม.</span></label>
+              <label class="field"><span>ส่งเฉพาะพื้นที่ (คั่นด้วย ,)</span><input type="text" name="allowedAreas" value="${esc(v.allowedAreas.join(', '))}" placeholder="${shop.areas.length ? esc(shop.areas.join(', ')) : 'ว่าง = ทุกพื้นที่'}"></label>
+            </div>
+          </fieldset>
+          <label class="check"><input type="checkbox" name="isActive" ${v.isActive ? 'checked' : ''}><span>แสดงในหน้าร้าน</span></label>
+        </form>`,
+        actions: `${p ? '<button class="btn danger" id="pdel" style="margin-right:auto">ลบเมนู</button>' : ''}<button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="psave">บันทึก</button>`,
+      });
+      $('#pfile', d).onchange = async (e) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        try {
+          $('#pimg', d).innerHTML = '<div class="preview ph small">กำลังอัปโหลด</div>';
+          image = await uploadImage(f, 1000);
+          $('#pimg', d).innerHTML = imgOrPh(image, '', 'preview', shop.category);
+        } catch (err) { toastErr(err); $('#pimg', d).innerHTML = imgOrPh(image, v.name || '+', 'preview', shop.category); }
+      };
+      $('#pclear', d).onclick = () => { image = null; $('#pimg', d).innerHTML = imgOrPh(null, v.name || '+', 'preview', shop.category); };
+      $('#psave', d).onclick = (e) => {
+        const f = $('#pf', d);
+        if (!f.reportValidity()) return;
+        const fd = Object.fromEntries(new FormData(f));
+        const body = {
+          name: fd.name, description: fd.description, category: fd.category, price: fd.price, unit: fd.unit, sort: fd.sort || 0, image,
+          minQty: fd.minQty || 1, dailyLimit: fd.dailyLimit || null, leadDays: fd.leadDays === '' ? null : fd.leadDays,
+          deliveryAllowed: !!fd.deliveryAllowed, pickupAllowed: !!fd.pickupAllowed, isActive: !!fd.isActive,
+          deliveryRadiusKm: fd.deliveryRadiusKm || null, allowedAreas: fd.allowedAreas,
+        };
+        busy(e.target, () => api(p ? '/api/my/products/' + p.id : '/api/my/products', { method: p ? 'PUT' : 'POST', body }))
+          .then(() => { d.close(); toast('บันทึกเมนูแล้ว', 'ok'); menu(); })
+          .catch(toastErr);
+      };
+      $('#pdel', d)?.addEventListener('click', async () => {
+        if (!(await confirmBox('ลบเมนู', `ลบ “${p.name}”? ถ้าเคยมีคนสั่ง ประวัติออเดอร์จะยังอยู่ครบ`, 'ลบ', true))) return;
+        try { await api('/api/my/products/' + p.id, { method: 'DELETE' }); d.close(); menu(); } catch (err) { toastErr(err); }
+      });
+    }
+
+    // ═════════ ตั้งค่าร้าน ═════════
+    async function settings() {
+      ({ shop } = await api('/api/my/shop'));
+      const s = shop;
+      let cover = s.coverImage;
+      let areas = [...s.areas];
+      let closedDates = [...s.closedDates];
+      let loc = s.lat != null ? { lat: s.lat, lng: s.lng } : null;
+
+      $('#panel').innerHTML = `
+        <h1>ตั้งค่าร้าน</h1>
+        <form id="sf">
+          <fieldset><legend>ข้อมูลร้าน</legend><div class="stack">
+            <div class="img-pick wide"><span id="cimg">${cover ? `<img class="preview" src="${esc(cover)}">` : '<div class="preview ph small">รูปปก</div>'}</span>
+              <div><label class="btn sm">เลือกรูปปก<input type="file" accept="image/*" id="cfile" hidden></label> <button type="button" class="btn ghost sm" id="cclear">ลบ</button></div></div>
+            <div class="form-grid">
+              <label class="field"><span>ชื่อร้าน</span><input type="text" name="name" maxlength="80" required value="${esc(s.name)}"></label>
+              <label class="field"><span>ประเภทร้าน</span><select name="category">${CATEGORIES.map((c) => `<option value="${c.key}" ${c.key === s.category ? 'selected' : ''}>${c.th}</option>`).join('')}</select><span class="field-hint">ใช้เป็นตัวกรองในหน้าแรก</span></label>
+              <label class="field"><span>ลิงก์ร้าน</span><input type="text" name="slug" maxlength="30" required value="${esc(s.slug)}"><span class="field-hint">${location.host}/s/<b>${esc(s.slug)}</b></span></label>
+              <label class="field"><span>เบอร์โทรร้าน</span><input type="tel" name="phone" maxlength="12" value="${esc(s.phone)}"></label>
+            </div>
+            <label class="field"><span>แนะนำร้าน</span><textarea name="description" maxlength="1000" placeholder="เช่น ขนมไทยทำสดทุกวัน รับจัดเบรก งานบุญ">${esc(s.description)}</textarea></label>
+            <div><span class="field-label">ช่องทางติดต่อร้าน</span><div class="form-grid">${Object.entries(CONTACTS).map(([k, c]) => `<label class="field"><span>${c.th}</span><input type="text" data-contact="${k}" maxlength="200" value="${esc(s.contacts[k] || '')}"></label>`).join('')}</div></div>
+          </div></fieldset>
+
+          <fieldset><legend>ตำแหน่งร้าน & จุดรับของ</legend><div class="stack">
+            <label class="field"><span>ที่อยู่ / จุดรับของ</span><textarea name="address" maxlength="500" placeholder="บ้านเลขที่ ซอย ถนน จุดสังเกต">${esc(s.address)}</textarea></label>
+            <div class="grid-2">
+              <label class="field"><span>จังหวัด</span><select name="province"><option value="">เลือกจังหวัด</option>${PROVINCES.map((p) => `<option ${p === s.province ? 'selected' : ''}>${p}</option>`).join('')}</select></label>
+              <label class="field"><span>อำเภอ / เขต</span><input type="text" name="district" maxlength="60" value="${esc(s.district)}" placeholder="เช่น สายไหม"><span class="field-hint">ปักหมุดแล้วระบบเติมให้อัตโนมัติ · ลูกค้าใช้กรองหาร้าน</span></label>
+            </div>
+            <div><div class="row between" style="margin-bottom:6px"><span class="field-label" style="margin:0">ปักหมุดร้าน (ใช้คำนวณระยะส่ง)</span><button type="button" class="btn sm" id="sloc">ใช้ตำแหน่งปัจจุบัน</button></div>
+              <div id="smap" class="map"></div><p class="field-hint" id="slocTxt"></p></div>
+          </div></fieldset>
+
+          <fieldset><legend>วิธีรับสินค้า & การส่ง</legend><div class="stack">
+            <label class="check"><input type="checkbox" name="pickupEnabled" ${s.pickupEnabled ? 'checked' : ''}><span>ให้ลูกค้ามารับเองที่ร้าน</span></label>
+            <label class="check"><input type="checkbox" name="deliveryEnabled" ${s.deliveryEnabled ? 'checked' : ''}><span>มีบริการจัดส่ง</span></label>
+            <div class="form-grid">
+              <label class="field"><span>ส่งได้ไม่เกิน (กม. จากร้าน)</span><input type="number" name="defaultRadiusKm" min="0" step="0.5" value="${s.defaultRadiusKm}"><span class="field-hint">ตั้งแยกรายเมนูได้ในหน้าเมนู</span></label>
+            </div>
+            <div class="card soft">
+              <b>ค่าส่งตามระยะทาง</b>
+              <div class="form-grid" style="margin-top:10px">
+                <label class="field"><span>ส่งฟรีในระยะ (กม.)</span><input type="number" name="freeDeliveryMaxKm" min="0" step="0.5" value="${s.freeDeliveryMaxKm}" data-fee><span class="field-hint">ค่าแนะนำ 3 กม. · ใส่ 0 = ไม่มีส่งฟรี</span></label>
+                <label class="field"><span>เกินระยะฟรี คิดเริ่มต้น (บาท)</span><input type="number" name="deliveryFeeBase" min="0" value="${s.deliveryFeeBase}" data-fee></label>
+                <label class="field"><span>และเพิ่ม กม.ละ (บาท)</span><input type="number" name="deliveryFeePerKm" min="0" value="${s.deliveryFeePerKm}" data-fee></label>
+              </div>
+              <div class="field-label" style="margin-top:10px">ตัวอย่างที่ลูกค้าจะเห็น</div>
+              <div class="fee-table" id="feePreview"></div>
+              <p class="small" style="margin:8px 0 0;color:var(--ok)" id="freePreview"></p>
+            </div>
+            <div><span class="field-label">พื้นที่ที่ส่ง (ไม่บังคับ) — ถ้าใส่ ลูกค้าต้องเลือกพื้นที่ตอนสั่ง</span>
+              <div class="row" style="flex-wrap:nowrap"><input type="text" id="areaIn" maxlength="60" placeholder="เช่น บางเขน แล้วกด เพิ่ม"><button type="button" class="btn" id="areaAdd">เพิ่ม</button></div>
+              <div class="chips" id="areaChips"></div></div>
+          </div></fieldset>
+
+          <fieldset><legend>การสั่งล่วงหน้า & เวลาทำการ</legend><div class="stack">
+            <div class="form-grid">
+              <label class="field"><span>ต้องสั่งล่วงหน้าอย่างน้อย (วัน)</span><input type="number" name="minLeadDays" min="0" max="60" value="${s.minLeadDays}"></label>
+              <label class="field"><span>สั่งล่วงหน้าได้ไกลสุด (วัน)</span><input type="number" name="maxAdvanceDays" min="1" max="365" value="${s.maxAdvanceDays}"></label>
+              <label class="field"><span>ส่ง/รับของได้ตั้งแต่</span><input type="time" name="openTime" value="${s.openTime}"></label>
+              <label class="field"><span>ถึง</span><input type="time" name="closeTime" value="${s.closeTime}"></label>
+              <label class="field"><span>ยอดสั่งขั้นต่ำ (บาท)</span><input type="number" name="minOrderAmount" min="0" value="${s.minOrderAmount}"></label>
+            </div>
+            <div><span class="field-label">วันหยุดประจำสัปดาห์ (กดเลือกวันที่หยุด)</span>
+              <div class="weekdays">${TH_DAYS_SHORT.map((d, i) => `<label><input type="checkbox" data-wd="${i}" ${s.closedWeekdays.includes(i) ? 'checked' : ''}><span>${d}</span></label>`).join('')}</div></div>
+            <div><span class="field-label">วันหยุดพิเศษ</span>
+              <div class="row" style="flex-wrap:nowrap"><input type="date" id="cdIn" style="width:auto"><button type="button" class="btn" id="cdAdd">เพิ่ม</button></div>
+              <div class="chips" id="cdChips"></div></div>
+            <label class="field"><span>ข้อความตอนปิดรับออเดอร์</span><input type="text" name="closedMessage" maxlength="200" value="${esc(s.closedMessage)}" placeholder="เช่น ปิดรับถึง 20 พ.ย. ขออภัยค่ะ"></label>
+          </div></fieldset>
+
+          <fieldset><legend>การชำระเงิน</legend><div class="stack">
+            <label class="check"><input type="checkbox" name="transferEnabled" ${s.transferEnabled ? 'checked' : ''}><span>รับโอน / พร้อมเพย์ (ลูกค้าแนบสลิป)</span></label>
+            <label class="check"><input type="checkbox" name="codEnabled" ${s.codEnabled ? 'checked' : ''}><span>รับชำระปลายทาง / เงินสดตอนรับของ</span></label>
+            <div class="form-grid">
+              <label class="field"><span>พร้อมเพย์</span><input type="text" name="promptpayId" inputmode="numeric" maxlength="20" value="${esc(s.promptpayId)}" placeholder="เบอร์มือถือ หรือเลขบัตรประชาชน"><span class="field-hint">ระบบสร้าง QR พร้อมยอดเงินให้ลูกค้าอัตโนมัติ</span></label>
+              <label class="field"><span>บัญชีธนาคาร (ไม่บังคับ)</span><textarea name="bankInfo" maxlength="300" style="min-height:44px" placeholder="กสิกร 123-4-56789-0 ชื่อ ...">${esc(s.bankInfo)}</textarea></label>
+            </div>
+          </div></fieldset>
+
+          <div class="row" style="position:sticky;bottom:0;background:#fff;padding:12px 0;border-top:1px solid var(--line)">
+            <button class="btn primary lg">บันทึกการตั้งค่า</button>
+          </div>
+        </form>`;
+
+      const renderChips = () => {
+        $('#areaChips').innerHTML = areas.map((a, i) => `<span class="pill">${esc(a)}<button type="button" data-ai="${i}" aria-label="ลบ">×</button></span>`).join('') || '<span class="small muted">ยังไม่กำหนด = ส่งทุกพื้นที่ในระยะ</span>';
+        $('#cdChips').innerHTML = closedDates.map((a, i) => `<span class="pill bad">${fmtDate(a)}<button type="button" data-ci="${i}" aria-label="ลบ">×</button></span>`).join('') || '<span class="small muted">ไม่มี</span>';
+      };
+      renderChips();
+      $('#areaAdd').onclick = () => {
+        const v = $('#areaIn').value.trim().replace(/,/g, ' ');
+        if (v && !areas.includes(v)) areas.push(v);
+        $('#areaIn').value = '';
+        renderChips();
+      };
+      $('#areaIn').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#areaAdd').click(); } };
+      $('#cdAdd').onclick = () => {
+        const v = $('#cdIn').value;
+        if (v && !closedDates.includes(v)) closedDates.push(v), closedDates.sort();
+        renderChips();
+      };
+      $('#areaChips').onclick = (e) => { const b = e.target.closest('[data-ai]'); if (b) { areas.splice(+b.dataset.ai, 1); renderChips(); } };
+      $('#cdChips').onclick = (e) => { const b = e.target.closest('[data-ci]'); if (b) { closedDates.splice(+b.dataset.ci, 1); renderChips(); } };
+
+      $('#cfile').onchange = async (e) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        try { cover = await uploadImage(f, 1600); $('#cimg').innerHTML = `<img class="preview" src="${esc(cover)}">`; } catch (err) { toastErr(err); }
+      };
+      $('#cclear').onclick = () => { cover = null; $('#cimg').innerHTML = '<div class="preview ph small">รูปปก</div>'; };
+
+      // ตัวอย่างค่าส่งแบบสด ตามค่าที่กรอก
+      const feePreview = () => {
+        const v = (n) => +$(`[name=${n}]`).value || 0;
+        const tmp = { deliveryFeeBase: v('deliveryFeeBase'), deliveryFeePerKm: v('deliveryFeePerKm'), freeDeliveryMaxKm: v('freeDeliveryMaxKm') };
+        const max = Math.max(1, v('defaultRadiusKm'));
+        const ks = [...new Set([1, 2, 3, 5, 8, 10, 15, 20].filter((k) => k <= max).concat(max))].sort((a, b) => a - b);
+        $('#feePreview').innerHTML = ks.map((k) => `<span>${k} กม. = ${baht(feeAt(tmp, k))}</span>`).join('');
+        $('#freePreview').textContent = freeRule(tmp) || 'ไม่มีส่งฟรี';
+      };
+      $$('[data-fee], [name=defaultRadiusKm]').forEach((i) => i.addEventListener('input', feePreview));
+      feePreview();
+
+      // แผนที่ร้าน
+      const center = loc || { lat: 13.7563, lng: 100.5018 };
+      const map = L.map('smap', { scrollWheelZoom: false }).setView([center.lat, center.lng], loc ? 15 : 11);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+      let marker, circle;
+      const setLoc = async (lat, lng, fly, geo) => {
+        loc = { lat, lng };
+        if (!marker) {
+          marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+          marker.on('dragend', () => { const p = marker.getLatLng(); setLoc(p.lat, p.lng, false, true); });
+        } else marker.setLatLng([lat, lng]);
+        if (circle) circle.remove();
+        circle = L.circle([lat, lng], { radius: (+$('[name=defaultRadiusKm]').value || 0) * 1000, color: '#d62828', weight: 1.5, fillOpacity: 0.06 }).addTo(map);
+        if (fly) map.setView([lat, lng], 14);
+        $('#slocTxt').textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)} · วงสีแดง = ระยะส่ง`;
+        if (geo) {
+          // เติมจังหวัด/อำเภอให้อัตโนมัติจากหมุด
+          const g = await reverseGeocode(lat, lng);
+          if (g?.province) $('[name=province]').value = g.province;
+          if (g?.district) $('[name=district]').value = g.district;
+          if (g) $('#slocTxt').textContent += ` · ${areaLabel(g.province, g.district)}`;
+        }
+      };
+      if (loc) setLoc(loc.lat, loc.lng);
+      else $('#slocTxt').textContent = 'ยังไม่ได้ปักหมุด — แตะบนแผนที่เพื่อปัก';
+      map.on('click', (e) => setLoc(e.latlng.lat, e.latlng.lng, false, true));
+      $('[name=defaultRadiusKm]').addEventListener('input', () => loc && setLoc(loc.lat, loc.lng));
+      $('#sloc').onclick = () => navigator.geolocation?.getCurrentPosition(
+        (p) => setLoc(p.coords.latitude, p.coords.longitude, true, true),
+        () => toast('หาตำแหน่งไม่ได้ กรุณาแตะบนแผนที่', 'error'),
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+      setTimeout(() => map.invalidateSize(), 50);
+
+      $('#sf').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const f = e.target;
+        const fd = Object.fromEntries(new FormData(f));
+        const contacts = {};
+        $$('[data-contact]').forEach((i) => (contacts[i.dataset.contact] = i.value));
+        const body = {
+          name: fd.name, slug: fd.slug, phone: fd.phone, description: fd.description, address: fd.address, coverImage: cover, contacts,
+          province: fd.province, district: fd.district,
+          lat: loc?.lat ?? null, lng: loc?.lng ?? null,
+          pickupEnabled: !!fd.pickupEnabled, deliveryEnabled: !!fd.deliveryEnabled,
+          category: fd.category,
+          defaultRadiusKm: fd.defaultRadiusKm, deliveryFeeBase: fd.deliveryFeeBase || 0, deliveryFeePerKm: fd.deliveryFeePerKm || 0,
+          freeDeliveryMaxKm: fd.freeDeliveryMaxKm || 0,
+          areas, minLeadDays: fd.minLeadDays, maxAdvanceDays: fd.maxAdvanceDays, openTime: fd.openTime, closeTime: fd.closeTime, minOrderAmount: fd.minOrderAmount || 0,
+          closedWeekdays: $$('[data-wd]:checked').map((i) => +i.dataset.wd), closedDates, closedMessage: fd.closedMessage,
+          transferEnabled: !!fd.transferEnabled, codEnabled: !!fd.codEnabled, promptpayId: fd.promptpayId, bankInfo: fd.bankInfo,
+        };
+        busy(e.submitter, () => api('/api/my/shop', { method: 'PUT', body }))
+          .then((r) => { shop = r.shop; renderShopHeader(); toast('บันทึกการตั้งค่าแล้ว', 'ok'); })
+          .catch(toastErr);
+      });
+    }
+
+    // ═════════ ความคิดเห็น ═════════
+    async function feedback() {
+      const { feedback: list } = await api('/api/my/feedback');
+      const KIND = { review: 'รีวิว', suggestion: 'คำแนะนำ', request: 'อยากให้มี', problem: 'แจ้งปัญหา' };
+      $('#panel').innerHTML = `<h1>ความคิดเห็นจากลูกค้า</h1>
+        <p class="muted small">รีวิวและคำตอบของร้านจะแสดงในหน้าร้าน ส่วนคำแนะนำ/สิ่งที่อยากให้มี เห็นเฉพาะร้าน</p>
+        ${list.length ? list.map((f) => `<div class="card" data-id="${f.id}">
+          <div class="row between"><b>${esc(f.userName || 'ลูกค้า')}</b><span class="row" style="gap:6px"><span class="pill ${f.kind === 'review' ? '' : 'info'}">${KIND[f.kind]}</span>${f.rating ? `<span class="stars">${'★'.repeat(f.rating)}</span>` : ''}${f.status === 'done' ? '<span class="pill ok">จัดการแล้ว</span>' : ''}</span></div>
+          <div class="small muted">${fmtDateTime(f.createdAt)}${f.kind !== 'review' ? ` · ${fmtPhone(f.userPhone)}` : ''}</div>
+          <p style="white-space:pre-line;margin:8px 0">${esc(f.message)}</p>
+          <textarea placeholder="${f.kind === 'review' ? 'ตอบกลับ (แสดงในหน้าร้าน)' : 'ตอบกลับ (ลูกค้าเห็นในหน้าบัญชี)'}">${esc(f.reply)}</textarea>
+          <div class="row" style="margin-top:8px"><button class="btn sm primary" data-save="open">บันทึกคำตอบ</button><button class="btn sm" data-save="done">บันทึก + ทำเครื่องหมายจัดการแล้ว</button></div>
+        </div>`).join('') : '<div class="empty">ยังไม่มีความคิดเห็น</div>'}`;
+      $$('[data-save]').forEach((b) => (b.onclick = async () => {
+        const card = b.closest('[data-id]');
+        try {
+          await api(`/api/my/feedback/${card.dataset.id}/reply`, { method: 'POST', body: { reply: card.querySelector('textarea').value, status: b.dataset.save } });
+          toast('บันทึกแล้ว', 'ok');
+          feedback();
+        } catch (err) { toastErr(err); }
+      }));
+    }
+
+    // ═════════ แจ้งเตือนออเดอร์ใหม่ (เช็กทุก 30 วินาที) ═════════
+    function beep() {
+      try {
+        const c = new AudioContext();
+        const o = c.createOscillator();
+        const g = c.createGain();
+        o.frequency.value = 880;
+        g.gain.value = 0.08;
+        o.connect(g).connect(c.destination);
+        o.start();
+        o.stop(c.currentTime + 0.25);
+      } catch {}
+    }
+    let lastSeen = null;
+    const baseTitle = document.title;
+    async function poll() {
+      try {
+        const s = await api('/api/my/summary');
+        const n = s.pending;
+        for (const el of [$('#tabPending'), $('#pendingBadge')]) {
+          if (!el) continue;
+          el.textContent = n;
+          el.classList.toggle('hidden', !n);
+        }
+        document.title = n ? `(${n}) ${baseTitle}` : baseTitle;
+        if (lastSeen && s.latestOrderAt && s.latestOrderAt > lastSeen) {
+          toast('มีออเดอร์ใหม่เข้ามา', 'ok');
+          beep();
+          if (tab === 'orders' || tab === 'overview') refreshTab();
+        }
+        lastSeen = s.latestOrderAt || lastSeen || '0';
+      } catch {}
+    }
+    poll();
+    setInterval(() => !document.hidden && poll(), 30000);
+
+    route();
+  </script>
+</body>
+</html>

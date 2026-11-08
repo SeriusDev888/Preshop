@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>คำสั่งซื้อ — Preshop</title>
+  <meta name="theme-color" content="#d62828">
+  <link rel="icon" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Preshop">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/v2.css">
+  <link rel="stylesheet" href="/css/v3.css">
+</head>
+<body>
+  <main>
+    <div class="wrap" style="max-width:860px" id="root"><p class="muted">กำลังโหลด…</p></div>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+  <script type="module">
+    import {
+      $, api, esc, baht, renderChrome, requireLogin, toast, toastErr, busy, fmtDate, fmtDateTime, relDay,
+      statusPill, payPill, contactLinks, mapsLink, promptpayPayload, qrImg, uploadImage, promptBox, fmtPhone, STATUS, openChat,
+    } from '/js/common.js';
+
+    await renderChrome('orders');
+    await requireLogin();
+    const code = decodeURIComponent(location.pathname.split('/')[2] || '');
+    const isNew = new URLSearchParams(location.search).has('new');
+
+    const FLOW_DELIVERY = ['pending', 'confirmed', 'preparing', 'ready', 'delivering', 'completed'];
+    const FLOW_PICKUP = ['pending', 'confirmed', 'preparing', 'ready', 'completed'];
+
+    async function load() {
+      let o;
+      try {
+        ({ order: o } = await api('/api/orders/' + encodeURIComponent(code)));
+      } catch (e) {
+        $('#root').innerHTML = `<div class="empty">${esc(e.message)}<br><br><a class="btn" href="/orders">ออเดอร์ของฉัน</a></div>`;
+        return;
+      }
+      document.title = `${o.code} — Preshop`;
+      const flow = o.fulfillment === 'delivery' ? FLOW_DELIVERY : FLOW_PICKUP;
+      const idx = flow.indexOf(o.status);
+      const shop = o.shop;
+      const showPay = o.status !== 'cancelled' && o.paymentStatus !== 'paid' && o.paymentStatus !== 'refunded';
+
+      $('#root').innerHTML = `
+        ${isNew ? `<div class="notice ok" style="margin-bottom:16px"><b>ส่งคำสั่งซื้อแล้ว</b> — ร้านจะยืนยันออเดอร์ให้เร็วที่สุด ${o.paymentMethod === 'transfer' ? 'ระหว่างนี้โอนเงินและแนบสลิปด้านล่างได้เลย' : ''}</div>` : ''}
+        ${o.role === 'seller' ? `<div class="notice" style="margin-bottom:16px">คุณเป็นเจ้าของร้านนี้ — จัดการออเดอร์ได้ที่ <a href="/seller#orders">หน้าจัดการร้าน</a></div>` : ''}
+
+        <div class="row between">
+          <div><div class="small muted">คำสั่งซื้อ</div><h1 style="margin:0" class="num">${esc(o.code)}</h1></div>
+          <div class="row">${statusPill(o.status)} ${payPill(o.paymentStatus, o.paymentMethod)}</div>
+        </div>
+        ${o.status !== 'cancelled' ? `<div class="progress">${flow.map((_, i) => `<span class="${i <= idx ? 'on' : ''}"></span>`).join('')}</div>
+          <div class="small muted">${flow.map((s) => (s === o.status ? `<b style="color:var(--ink)">${STATUS[s].th}</b>` : STATUS[s].th)).join(' → ')}</div>`
+          : `<div class="notice bad" style="margin-top:12px">ออเดอร์นี้ถูกยกเลิก${o.cancelReason ? ` — ${esc(o.cancelReason)}` : ''}</div>`}
+
+        <div class="grid-2" style="margin-top:20px;align-items:start">
+          <div class="stack">
+            <div class="card">
+              <h3>${o.fulfillment === 'delivery' ? 'จัดส่ง' : 'มารับเองที่ร้าน'} · ${fmtDate(o.receiveDate)} ${o.receiveTime} น. ${relDay(o.receiveDate) ? `<span class="pill">${relDay(o.receiveDate)}</span>` : ''}</h3>
+              <dl class="kv">
+                <dt>ผู้รับ</dt><dd>${esc(o.recipientName)} · <a href="tel:${esc(o.recipientPhone)}">${fmtPhone(o.recipientPhone)}</a></dd>
+                ${o.fulfillment === 'delivery'
+                  ? `<dt>ที่อยู่</dt><dd>${esc(o.address)}${o.area ? ` (${esc(o.area)})` : ''}<br><a href="${mapsLink(o.lat, o.lng)}" target="_blank" rel="noopener">ดูแผนที่</a> · ห่างร้าน ${o.distanceKm?.toFixed(1)} กม.</dd>`
+                  : `<dt>จุดรับ</dt><dd>${esc(shop.address || '-')}${shop.lat != null ? `<br><a href="${mapsLink(shop.lat, shop.lng)}" target="_blank" rel="noopener">นำทางไปร้าน</a>` : ''}</dd>`}
+                ${o.purpose ? `<dt>โอกาส</dt><dd>${esc(o.purpose)}</dd>` : ''}
+                ${o.buyerNote ? `<dt>หมายเหตุ</dt><dd style="white-space:pre-line">${esc(o.buyerNote)}</dd>` : ''}
+                <dt>สั่งเมื่อ</dt><dd>${fmtDateTime(o.createdAt)}</dd>
+              </dl>
+            </div>
+
+            <div class="card">
+              <h3>รายการ</h3>
+              <div class="table-wrap"><table class="t">
+                <thead><tr><th>เมนู</th><th class="r">จำนวน</th><th class="r">รวม</th></tr></thead>
+                <tbody>${o.items.map((i) => `<tr><td>${esc(i.name)}${i.note ? `<div class="small muted">${esc(i.note)}</div>` : ''}</td><td class="r num">${i.qty} ${esc(i.unit)}</td><td class="r num">${baht(i.price * i.qty)}</td></tr>`).join('')}</tbody>
+              </table></div>
+              <div class="totals" style="margin-top:12px">
+                <div><span>ค่าขนม/อาหาร</span><span class="num">${baht(o.subtotal)}</span></div>
+                ${o.fulfillment === 'delivery' ? `<div><span>ค่าส่ง</span><span class="num">${o.deliveryFee ? baht(o.deliveryFee) : 'ฟรี'}</span></div>` : ''}
+                <div class="grand"><span>รวมทั้งหมด</span><span class="num">${baht(o.total)}</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="stack">
+            <div class="card" id="payCard">
+              <h3>การชำระเงิน</h3>
+              <p>${o.paymentMethod === 'cod' ? 'ชำระปลายทาง (จ่ายตอนรับของ)' : 'โอนเงิน / พร้อมเพย์'} · ${payPill(o.paymentStatus, o.paymentMethod)}</p>
+              ${showPay && o.role === 'buyer' && (shop.promptpayId || shop.bankInfo) ? `
+                ${o.paymentMethod === 'cod' ? '<p class="small muted">ถ้าต้องการโอนก่อนก็ทำได้ แนบสลิปแล้วระบบจะเปลี่ยนเป็นแบบโอนให้</p>' : ''}
+                <div class="qr-box">
+                  ${shop.promptpayId ? `<div class="qr" id="qr"></div>` : ''}
+                  <div style="flex:1;min-width:160px">
+                    ${shop.promptpayId ? `<div class="small muted">พร้อมเพย์</div><b class="num">${esc(shop.promptpayId)}</b><div class="small muted" style="margin-top:6px">สแกนแล้วยอดจะขึ้นอัตโนมัติ</div>` : ''}
+                    <div class="small muted" style="margin-top:8px">ยอดที่ต้องโอน</div><b style="font-size:1.4rem" class="num">${baht(o.total)}</b>
+                    ${shop.bankInfo ? `<div class="small" style="margin-top:8px;white-space:pre-line">${esc(shop.bankInfo)}</div>` : ''}
+                  </div>
+                </div>` : ''}
+              ${o.slipImage ? `<div style="margin-top:12px"><div class="small muted">สลิปที่แนบ</div><a href="${esc(o.slipImage)}" target="_blank"><img class="slip-thumb" src="${esc(o.slipImage)}" alt="สลิป"></a></div>` : ''}
+              ${showPay && o.role === 'buyer' ? `
+                <label class="btn block" style="margin-top:12px">${o.slipImage ? 'เปลี่ยนสลิป' : 'แนบสลิปโอนเงิน'}<input type="file" accept="image/*" id="slip" hidden></label>` : ''}
+              ${o.paidAt ? `<p class="small muted" style="margin:8px 0 0">ร้านยืนยันรับเงิน ${fmtDateTime(o.paidAt)}</p>` : ''}
+            </div>
+
+            <div class="card">
+              <h3>ติดต่อร้าน ${esc(shop.name)}</h3>
+              <div class="contact-list">${contactLinks(shop.contacts, shop.phone)}</div>
+              <div class="row" style="margin-top:12px">
+                <button class="btn dark sm" id="chatBtn" type="button">${o.role === 'seller' ? 'แชทกับลูกค้า' : 'แชทกับร้าน'}</button>
+                <a class="btn sm" href="/s/${esc(shop.slug)}">ไปหน้าร้าน</a>
+                ${o.role === 'buyer' && o.status === 'pending' ? '<button class="btn sm danger" id="cancelBtn">ยกเลิกออเดอร์</button>' : ''}
+                ${o.role === 'buyer' && o.status === 'completed' ? `<a class="btn sm" href="/s/${esc(shop.slug)}#reviews">เขียนรีวิว</a>` : ''}
+              </div>
+            </div>
+
+            <div class="card">
+              <h3>ความเคลื่อนไหว</h3>
+              <ul class="timeline">${o.events.slice().reverse().map((e) => `<li><b>${esc(e.message)}</b><div class="small muted">${fmtDateTime(e.createdAt)} · ${e.actor === 'seller' ? 'ร้าน' : 'ลูกค้า'}</div></li>`).join('')}</ul>
+            </div>
+          </div>
+        </div>`;
+
+      if ($('#qr') && window.qrcode) $('#qr').innerHTML = qrImg(promptpayPayload(shop.promptpayId, o.total), 5);
+
+      $('#slip')?.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          toast('กำลังอัปโหลดสลิป…');
+          const data = await import('/js/common.js').then((m) => m.fileToDataUrl(file, 1600));
+          await api(`/api/orders/${encodeURIComponent(code)}/slip`, { method: 'POST', body: { image: data } });
+          toast('แนบสลิปแล้ว รอร้านตรวจสอบ', 'ok');
+          load();
+        } catch (err) {
+          toastErr(err);
+        }
+      });
+
+      $('#chatBtn')?.addEventListener('click', () => openChat({ orderCode: o.code }));
+      $('#cancelBtn')?.addEventListener('click', async () => {
+        const reason = await promptBox('ยกเลิกออเดอร์', 'เหตุผล (ไม่บังคับ)', { okLabel: 'ยกเลิกออเดอร์', danger: true });
+        if (reason === null) return;
+        try {
+          await api(`/api/orders/${encodeURIComponent(code)}/cancel`, { method: 'POST', body: { reason } });
+          toast('ยกเลิกแล้ว');
+          load();
+        } catch (err) {
+          toastErr(err);
+        }
+      });
+    }
+
+    load();
+    // อัปเดตสถานะอัตโนมัติทุก 60 วินาที
+    setInterval(() => { if (!document.hidden && !document.querySelector('dialog[open]')) load(); }, 60000);
+  </script>
+</body>
+</html>

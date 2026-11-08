@@ -1,0 +1,26 @@
+{
+  "id": "/",
+  "name": "Preshop — สั่งล่วงหน้า",
+  "short_name": "Preshop",
+  "description": "สั่งขนมไทย อาหาร ชุดทำบุญ ล่วงหน้าจากร้านใกล้บ้าน เลือกวันรับ ให้ร้านส่งหรือไปรับเอง",
+  "lang": "th",
+  "dir": "ltr",
+  "start_url": "/?source=app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#d62828",
+  "categories": ["food", "shopping", "business"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "ออเดอร์ของฉัน", "url": "/orders", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "แชท", "url": "/chat", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "จัดการร้าน", "url": "/seller", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

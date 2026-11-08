@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>แชท — Preshop</title>
+  <meta name="theme-color" content="#d62828">
+  <link rel="icon" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Preshop">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/v2.css">
+  <link rel="stylesheet" href="/css/v3.css">
+</head>
+<body>
+  <main style="padding:16px 0 16px;min-height:0">
+    <div class="wrap">
+      <div class="chat" id="chat">
+        <aside class="chat-list" id="list" aria-label="รายการแชท"><p class="muted" style="padding:16px">กำลังโหลด…</p></aside>
+        <section class="chat-room" id="room">
+          <div class="chat-empty">เลือกห้องแชทด้านซ้าย<br><small>ทักร้านได้จากปุ่ม “แชทกับร้าน” ในหน้าร้าน หรือจากหน้าออเดอร์</small></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { $, $$, api, esc, baht, renderChrome, requireLogin, toastErr, fmtDate, fmtPhone, statusPill, contactLinks, animate } from '/js/common.js';
+    import { catIcon } from '/js/icons.js';
+    await renderChrome('chat');
+    await requireLogin();
+    document.querySelector('footer.site')?.remove();
+
+    let current = Number(new URLSearchParams(location.search).get('c')) || 0;
+    let lastId = 0;
+    let convs = [];
+    let orders = [];
+    let attach = '';
+
+    const timeOf = (iso) => new Date(iso).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' });
+    const dayOf = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    const ago = (iso) => {
+      if (!iso) return '';
+      const d = dayOf(iso);
+      return d === dayOf(new Date().toISOString()) ? timeOf(iso) : fmtDate(d, { weekday: false, year: false });
+    };
+
+    async function loadList() {
+      const r = await api('/api/chat');
+      convs = r.conversations;
+      const b = $('#chatBadge');
+      if (b) { b.textContent = r.unread || ''; b.classList.toggle('hidden', !r.unread); }
+      $('#list').innerHTML = convs.length
+        ? convs.map((c) => `<a href="?c=${c.id}" data-id="${c.id}" class="${c.id === current ? 'on' : ''}">
+            <span class="av">${c.role === 'buyer' ? (c.shop.coverImage ? `<img src="${esc(c.shop.coverImage)}" alt="" style="width:100%;height:100%;object-fit:cover">` : catIcon(c.shop.category)) : esc([...(c.title || '?')][0])}</span>
+            <span style="min-width:0"><span class="t">${esc(c.title)}</span><span class="s">${c.lastMessage ? esc(c.lastMessage) : esc(c.subtitle)}</span></span>
+            <span style="text-align:right"><span class="small muted">${ago(c.lastMessageAt)}</span>${c.unread ? `<br><span class="badge-dot">${c.unread}</span>` : ''}</span>
+          </a>`).join('')
+        : '<p class="muted" style="padding:16px">ยังไม่มีแชท<br><a href="/">ไปเลือกร้าน</a> แล้วกด “แชทกับร้าน”</p>';
+    }
+
+    $('#list').addEventListener('click', (e) => {
+      const a = e.target.closest('a[data-id]');
+      if (!a) return;
+      e.preventDefault();
+      openRoom(+a.dataset.id);
+    });
+
+    function bubble(m) {
+      return `<div class="bubble ${m.mine ? 'mine' : ''}" data-id="${m.id}">${m.orderCode ? `<a class="ref" href="/o/${esc(m.orderCode)}">ออเดอร์ ${esc(m.orderCode)}</a><br>` : ''}${esc(m.body)}<span class="time">${timeOf(m.createdAt)}</span></div>`;
+    }
+    function appendMessages(msgs) {
+      const box = $('#msgs');
+      if (!box) return;
+      const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+      let lastDay = box.dataset.day || '';
+      let html = '';
+      for (const m of msgs) {
+        const d = dayOf(m.createdAt);
+        if (d !== lastDay) { html += `<div class="day-sep">${fmtDate(d)}</div>`; lastDay = d; }
+        html += bubble(m);
+        lastId = Math.max(lastId, m.id);
+      }
+      box.dataset.day = lastDay;
+      box.querySelector('.chat-empty')?.remove();
+      box.insertAdjacentHTML('beforeend', html);
+      if (nearBottom || msgs.some((m) => m.mine)) box.scrollTop = box.scrollHeight;
+    }
+
+    async function openRoom(id) {
+      current = id;
+      lastId = 0;
+      attach = '';
+      history.replaceState(null, '', '?c=' + id);
+      $$('#list a').forEach((a) => a.classList.toggle('on', +a.dataset.id === id));
+      $('#chat').classList.add('in-room');
+      let r;
+      try { r = await api(`/api/chat/${id}/messages`); } catch (e) { toastErr(e); return; }
+      const c = r.conversation;
+      orders = r.orders;
+      const QUICK = c.role === 'buyer'
+        ? ['สวัสดีค่ะ/ครับ', 'สั่งเพิ่มได้ไหม', 'ขอเลื่อนวันรับได้ไหม', 'โอนแล้วนะคะ/ครับ', 'ถึงแล้วโทรหาได้เลย']
+        : ['ได้เลยค่ะ/ครับ', 'รับออเดอร์แล้วนะคะ', 'วันนั้นคิวเต็มแล้วค่ะ', 'กำลังไปส่งค่ะ', 'ได้รับเงินแล้ว ขอบคุณค่ะ'];
+      $('#room').innerHTML = `
+        <div class="chat-head">
+          <button class="btn ghost sm" id="back" aria-label="กลับ">‹</button>
+          <div style="flex:1;min-width:0">
+            <b>${esc(c.title)}</b>
+            <div class="small muted">${c.role === 'buyer'
+              ? `<a href="/s/${esc(c.shop.slug)}">ดูหน้าร้าน</a>${c.shop.phone ? ` · <a href="tel:${esc(c.shop.phone)}">โทร ${fmtPhone(c.shop.phone)}</a>` : ''}`
+              : `${esc(c.subtitle)}${c.buyer.phone ? ` · <a href="tel:${esc(c.buyer.phone)}">โทร ${fmtPhone(c.buyer.phone)}</a>` : ''}`}</div>
+          </div>
+        </div>
+        <div class="chat-msgs" id="msgs"><div class="chat-empty">ยังไม่มีข้อความ เริ่มทักได้เลย</div></div>
+        <div class="chat-quick" id="quick">${QUICK.map((q) => `<button type="button">${q}</button>`).join('')}</div>
+        <form class="chat-send" id="send">
+          ${orders.length ? `<select id="ref" style="width:auto;max-width:150px" aria-label="แนบออเดอร์"><option value="">แนบออเดอร์</option>${orders.map((o) => `<option value="${esc(o.code)}">${esc(o.code)} · ${fmtDate(o.receiveDate, { weekday: false, year: false })}</option>`).join('')}</select>` : ''}
+          <textarea id="text" rows="1" maxlength="1000" placeholder="พิมพ์ข้อความ…" aria-label="ข้อความ"></textarea>
+          <button class="btn dark">ส่ง</button>
+        </form>`;
+      $('#back').onclick = () => { $('#chat').classList.remove('in-room'); history.replaceState(null, '', '/chat'); current = 0; loadList(); };
+      appendMessages(r.messages);
+      $('#msgs').scrollTop = $('#msgs').scrollHeight;
+      $('#quick').onclick = (e) => { const b = e.target.closest('button'); if (b) { $('#text').value = b.textContent; $('#text').focus(); } };
+      const ta = $('#text');
+      ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(140, ta.scrollHeight) + 'px'; });
+      ta.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#send').requestSubmit(); }
+      });
+      $('#send').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const body = ta.value.trim();
+        if (!body) return;
+        ta.value = '';
+        ta.style.height = '';
+        try {
+          await api(`/api/chat/${id}/messages`, { method: 'POST', body: { body, orderCode: $('#ref')?.value || undefined } });
+          if ($('#ref')) $('#ref').value = '';
+          await poll();
+          loadList();
+        } catch (err) { ta.value = body; toastErr(err); }
+      });
+      if (window.innerWidth > 760) ta.focus();
+      loadList();
+    }
+
+    async function poll() {
+      if (!current) return;
+      try {
+        const r = await api(`/api/chat/${current}/messages?after=${lastId}`);
+        if (r.messages.length) appendMessages(r.messages);
+      } catch {}
+    }
+
+    await loadList();
+    if (current) openRoom(current);
+    // ดึงข้อความใหม่ทุก 4 วินาที รายการห้องทุก 15 วินาที
+    setInterval(() => !document.hidden && poll(), 4000);
+    setInterval(() => !document.hidden && loadList(), 15000);
+  </script>
+</body>
+</html>

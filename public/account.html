@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>บัญชีของฉัน — Preshop</title>
+  <meta name="theme-color" content="#d62828">
+  <link rel="icon" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Preshop">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/v2.css">
+  <link rel="stylesheet" href="/css/v3.css">
+</head>
+<body>
+  <main>
+    <div class="wrap" style="max-width:760px">
+      <h1>บัญชีของฉัน</h1>
+
+      <form class="card stack" id="profile">
+        <div class="row between"><h2 style="margin:0">ข้อมูลส่วนตัว</h2><span class="pill ok" id="phoneBadge"></span></div>
+        <label class="field"><span>ชื่อ</span><input type="text" id="name" maxlength="80" required></label>
+        <div>
+          <span class="field-label">ช่องทางติดต่อเพิ่มเติม (ไม่บังคับ) — ร้านจะเห็นเมื่อคุณสั่งซื้อ</span>
+          <div class="form-grid" id="contacts"></div>
+        </div>
+        <div class="row"><button class="btn primary">บันทึก</button><button type="button" class="btn ghost" id="logout">ออกจากระบบ</button></div>
+      </form>
+
+      <section class="card" id="myLoc" style="margin-top:16px"></section>
+      <section class="card" id="open-shop" style="margin-top:16px"></section>
+
+      <section style="margin-top:16px">
+        <div class="section-title"><h2>ข้อความที่ฉันส่ง</h2><a class="small" href="/feedback">ส่งข้อเสนอแนะถึง Preshop</a></div>
+        <div id="myFb"><p class="muted">กำลังโหลด…</p></div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module">
+    import { $, api, esc, renderChrome, requireLogin, getMe, toast, toastErr, busy, CONTACTS, fmtPhone, fmtDateTime, imgOrPh, setCurrentShopId } from '/js/common.js';
+    import { CATEGORIES, catIcon, catTh } from '/js/icons.js';
+    import { areaLabel } from '/js/thai.js';
+    import { pickMyLocation } from '/js/common.js';
+
+    function renderMyLoc(loc) {
+      $('#myLoc').innerHTML = `<div class="row between"><div><h2 style="margin:0 0 4px">ที่อยู่สำหรับจัดส่ง</h2>
+          <div class="${loc ? '' : 'muted'}">${loc ? `<b>${esc(areaLabel(loc.province, loc.district) || 'ปักหมุดไว้แล้ว')}</b>${loc.address ? `<div class="small muted">${esc(loc.address)}</div>` : ''}` : 'ยังไม่ได้ปักหมุด ปักไว้แล้วจะเห็นระยะทางและค่าส่งของทุกร้าน'}</div></div>
+          <button class="btn ${loc ? '' : 'primary'}" id="editLoc">${loc ? 'เปลี่ยนที่อยู่' : 'ปักหมุดที่อยู่'}</button></div>`;
+      $('#editLoc').onclick = async () => { const l = await pickMyLocation(); if (l) renderMyLoc(l); };
+    }
+    await renderChrome('account');
+    const me = await requireLogin();
+    const u = me.user;
+
+    $('#phoneBadge').textContent = 'ยืนยันเบอร์แล้ว ' + fmtPhone(u.phone);
+    $('#name').value = u.name;
+    const PH = { facebook: 'ชื่อเพจ หรือลิงก์', line: 'LINE ID', instagram: '@username', tiktok: '@username', website: 'example.com', other: 'ช่องทางอื่น' };
+    $('#contacts').innerHTML = Object.entries(CONTACTS).map(([k, d]) => `
+      <label class="field"><span>${d.th}</span><input type="text" data-k="${k}" maxlength="200" placeholder="${PH[k]}" value="${esc(u.contacts[k] || '')}"></label>`).join('');
+
+    $('#profile').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const contacts = {};
+      document.querySelectorAll('#contacts input').forEach((i) => (contacts[i.dataset.k] = i.value));
+      busy(e.submitter, () => api('/api/me', { method: 'PUT', body: { name: $('#name').value, contacts } }))
+        .then(() => toast('บันทึกแล้ว', 'ok'))
+        .catch(toastErr);
+    });
+    renderMyLoc(u.location);
+    $('#logout').onclick = async () => {
+      await api('/api/auth/logout', { method: 'POST' });
+      location.href = '/';
+    };
+
+    // ร้านของฉัน (มีได้หลายร้าน) + เปิดร้านใหม่
+    {
+      const shops = me.shops || [];
+      $('#open-shop').innerHTML = `
+        ${shops.length ? `<h2>ร้านของฉัน (${shops.length})</h2>
+          <div class="stack anim-in" style="margin-bottom:22px">${shops.map((s) => `
+            <div class="prod-item" style="grid-template-columns:56px 1fr auto">
+              ${imgOrPh(s.coverImage, s.name, 'thumb', s.category)}
+              <div><b>${esc(s.name)}</b> ${s.isOpen ? '<span class="state-on">เปิดรับออเดอร์</span>' : '<span class="state-off">ปิดชั่วคราว</span>'}
+                <div class="small muted">${catTh(s.category)} · <a href="/s/${esc(s.slug)}">${location.host}/s/${esc(s.slug)}</a></div></div>
+              <a class="btn primary sm" href="/seller" data-shop="${s.id}">จัดการ</a>
+            </div>`).join('')}</div>` : ''}
+        <h2>${shops.length ? 'เปิดร้านใหม่' : 'เปิดร้านของคุณ'}</h2>
+        <p class="muted">${shops.length ? 'แยกร้านตามประเภทสินค้าได้ เช่น ขนมไทยร้านหนึ่ง ข้าวกล่องอีกร้าน แต่ละร้านมีเมนู ออเดอร์ และยอดขายของตัวเอง' : 'รับออเดอร์ล่วงหน้า ดูยอดที่ต้องทำแต่ละวัน กำหนดระยะส่งและค่าส่งได้เอง ไม่มีค่าใช้จ่าย'}</p>
+        <form id="shopForm" class="stack">
+          <div><span class="field-label">ร้านขายอะไร</span>
+            <div class="choices" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">${CATEGORIES.map((c, i) => `
+              <label class="choice"><input type="radio" name="cat" value="${c.key}" ${i === 0 ? 'checked' : ''}><span class="box" style="display:flex;gap:8px;align-items:center"><span style="width:30px;flex:none">${catIcon(c.key)}</span><b>${c.th}</b></span></label>`).join('')}</div></div>
+          <label class="field"><span>ชื่อร้าน</span><input type="text" id="shopName" maxlength="80" required placeholder="เช่น ขนมไทยบ้านยาย"></label>
+          <label class="field"><span>ลิงก์ร้าน (ภาษาอังกฤษ ไม่บังคับ)</span>
+            <div class="row" style="flex-wrap:nowrap;gap:6px"><span class="muted small" style="white-space:nowrap">${location.host}/s/</span><input type="text" id="shopSlug" maxlength="30" placeholder="baan-yai" pattern="[a-z0-9-]{3,30}"></div>
+            <span class="field-hint">a-z, 0-9 และ - เท่านั้น เว้นว่างไว้ระบบจะตั้งให้</span></label>
+          <button class="btn primary lg">เปิดร้าน</button>
+        </form>`;
+      $('#shopForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        busy(e.submitter, async () => {
+          if ($('#name').value.trim() !== u.name) await api('/api/me', { method: 'PUT', body: { name: $('#name').value, contacts: u.contacts } });
+          const { shop } = await api('/api/my/shop', { method: 'POST', body: { name: $('#shopName').value, slug: $('#shopSlug').value || undefined, category: document.querySelector('input[name=cat]:checked').value } });
+          setCurrentShopId(shop.id);
+          location.href = '/seller#settings';
+        }).catch(toastErr);
+      });
+      $('#open-shop').addEventListener('click', (e) => {
+        const a = e.target.closest('a[data-shop]');
+        if (a) setCurrentShopId(a.dataset.shop);
+      });
+      if (location.hash === '#open-shop') setTimeout(() => { $('#shopName').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('#shopName').focus({ preventScroll: true }); }, 150);
+    }
+
+    // feedback ที่เคยส่ง
+    const KIND = { review: 'รีวิว', suggestion: 'คำแนะนำ', request: 'อยากให้มี', problem: 'แจ้งปัญหา' };
+    const { feedback } = await api('/api/feedback/mine');
+    $('#myFb').innerHTML = feedback.length
+      ? feedback.map((f) => `<div class="card">
+          <div class="row between"><b>${esc(f.shopName || 'ทีม Preshop')}</b><span class="pill grey">${KIND[f.kind]}${f.rating ? ` ★${f.rating}` : ''}</span></div>
+          <div class="small muted">${fmtDateTime(f.createdAt)}</div>
+          <p style="margin:6px 0 0;white-space:pre-line">${esc(f.message)}</p>
+          ${f.reply ? `<div class="review"><div class="reply"><b>ตอบกลับ:</b> ${esc(f.reply)}</div></div>` : ''}
+        </div>`).join('')
+      : '<div class="empty">ยังไม่มี</div>';
+  </script>
+</body>
+</html>

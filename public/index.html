@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Preshop — สั่งล่วงหน้า ได้ตรงวัน</title>
+  <meta name="description" content="สั่งขนมไทย อาหาร ชุดทำบุญ ล่วงหน้าจากร้านใกล้บ้าน เลือกวันรับ ให้ร้านส่งหรือไปรับเอง">
+  <meta name="theme-color" content="#d62828">
+  <link rel="icon" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Preshop">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/v2.css">
+  <link rel="stylesheet" href="/css/v3.css">
+</head>
+<body>
+  <!-- สไลด์: หน้าแนะนำ + ร้านยอดนิยม เลื่อนได้ มีจุดบอกหน้า -->
+  <section class="slider" aria-roledescription="carousel" aria-label="ร้านยอดนิยม">
+    <div class="slides" id="slides"></div>
+    <button class="arrow prev" aria-label="สไลด์ก่อนหน้า">‹</button>
+    <button class="arrow next" aria-label="สไลด์ถัดไป">›</button>
+    <div class="dots" id="dots" role="tablist"></div>
+  </section>
+
+  <div class="searchdock">
+    <div class="wrap">
+      <button type="button" class="locchip" id="locChip"></button>
+      <form id="searchForm" role="search">
+        <input type="search" id="q" placeholder="ค้นหาร้าน เมนู หรือพื้นที่ เช่น บัวลอย, สายไหม" aria-label="ค้นหา">
+        <button class="btn dark">ค้นหา</button>
+      </form>
+      <select id="prov" aria-label="จังหวัด" style="width:auto"><option value="">ทุกจังหวัด</option></select>
+      <select id="dist" aria-label="อำเภอ/เขต" style="width:auto" disabled><option value="">ทุกอำเภอ/เขต</option></select>
+    </div>
+  </div>
+
+  <main style="padding-top:24px">
+    <div class="wrap">
+      <div class="section-title" style="margin-top:0"><h2 id="listTitle">ร้านทั้งหมด</h2><span class="muted small" id="count"></span></div>
+      <div class="chipbar" id="cats" role="tablist" aria-label="หมวดหมู่"></div>
+      <div class="filterbar" id="filters">
+        <button class="chip plain" data-t="open">เปิดรับอยู่</button>
+        <button class="chip plain" data-t="free">ส่งฟรี 3 กม.</button>
+        <button class="chip plain" data-t="delivery">มีบริการส่ง</button>
+        <button class="chip plain" data-t="pickup">รับเองได้</button>
+        <button class="chip plain" data-t="inRange" id="inRangeChip" hidden>ส่งถึงบ้านฉัน</button>
+        <span class="sep"></span>
+        <button class="chip plain star" data-star="4">★ 4.0 ขึ้นไป</button>
+        <button class="chip plain star" data-star="4.5">★ 4.5 ขึ้นไป</button>
+        <span class="sep"></span>
+        <select id="sort" aria-label="เรียงตาม">
+          <option value="popular">เรียง: ยอดนิยม</option>
+          <option value="rating">เรียง: คะแนนสูงสุด</option>
+          <option value="near">เรียง: ใกล้ฉัน</option>
+          <option value="new">เรียง: ร้านใหม่</option>
+        </select>
+      </div>
+      <div id="shops" class="shop-grid" aria-live="polite"></div>
+
+      <section class="svc" id="for-shops">
+        <div class="svc-head reveal"><h2>รวมทุกอย่างของการสั่งล่วงหน้าไว้ในที่เดียว ทั้งคนสั่งและคนขาย</h2></div>
+        <div class="svc-tabs reveal" role="tablist">
+          <button class="on" data-svc="buyer">ผู้สั่ง</button>
+          <button data-svc="seller">ร้านค้า</button>
+        </div>
+        <div id="svcBody"></div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module">
+    import { $, $$, api, esc, renderChrome, toast, toastErr, revealOnScroll, baht, pickMyLocation, getMe } from '/js/common.js';
+    import { ICONS, CATEGORIES, HERO_ART, catIcon, catTh, bannerArt } from '/js/icons.js';
+    import { areaLabel } from '/js/thai.js';
+    const me = await renderChrome('home');
+
+    // ───── ที่อยู่ของฉัน (ใช้คำนวณระยะ/ค่าส่ง) ─────
+    let myLoc = me.user?.location || null;
+    function renderLocChip() {
+      $('#locChip').innerHTML = `<span class="ic">${ICONS.pin}</span><span><small>ส่งไปที่</small><b>${myLoc ? esc(areaLabel(myLoc.province, myLoc.district) || 'ตำแหน่งที่ปักไว้') : 'ปักหมุดที่อยู่ เพื่อดูค่าส่ง'}</b></span><span class="chev">▼</span>`;
+      $('#inRangeChip').hidden = !myLoc;
+    }
+    renderLocChip();
+    $('#locChip').onclick = async () => {
+      if (!me.user) return (location.href = '/login?next=/');
+      const loc = await pickMyLocation();
+      if (loc) { myLoc = loc; renderLocChip(); load(); }
+    };
+
+    // ───── จังหวัด / อำเภอ ─────
+    let provinces = [];
+    api('/api/locations').then((r) => {
+      provinces = r.provinces;
+      $('#prov').innerHTML = '<option value="">ทุกจังหวัด</option>' + provinces.map((p) => `<option value="${esc(p.province)}">${esc(p.province)} (${p.count})</option>`).join('');
+    }).catch(() => {});
+    $('#prov').onchange = () => {
+      state.province = $('#prov').value;
+      state.district = '';
+      const p = provinces.find((x) => x.province === state.province);
+      $('#dist').disabled = !p;
+      $('#dist').innerHTML = '<option value="">ทุกอำเภอ/เขต</option>' + (p ? p.districts.map((d) => `<option value="${esc(d.name)}">${esc(d.name)} (${d.count})</option>`).join('') : '');
+      load();
+    };
+    $('#dist').onchange = () => { state.district = $('#dist').value; load(); };
+
+    // ───── สไลด์ ─────
+    const coverOf = (s, i) => (s.coverImage ? `<img class="bg" src="${esc(s.coverImage)}" alt="">` : `<div class="bg">${bannerArt(s.category, i)}</div>`);
+    async function buildSlider() {
+      let featured = [];
+      try { ({ shops: featured } = await api('/api/shops/featured')); } catch {}
+      const slides = [
+        `<div class="slide" role="group" aria-label="แนะนำ Preshop">
+          <div class="bg brand-art"><div></div><div class="art">${HERO_ART}</div></div>
+          <div class="wrap inner">
+            <span class="kicker">สั่งล่วงหน้า · ส่งฟรี 3 กม.</span>
+            <h2>สั่งไว้ก่อน<br><em>ได้ตรงวันที่ต้องใช้</em></h2>
+            <p>ขนมไทย อาหาร ชุดทำบุญ ของฝาก จากร้านใกล้บ้าน เลือกวันรับ เห็นคิวว่างก่อนสั่ง ให้ร้านไปส่งหรือแวะไปรับเอง</p>
+            <div class="row"><a class="btn primary lg" href="#listTitle">ดูร้านทั้งหมด</a><a class="btn lg ghost-light" href="#for-shops">เปิดร้านกับเรา</a></div>
+          </div>
+        </div>`,
+        ...featured.map((s, i) => `
+        <div class="slide" role="group" aria-label="${esc(s.name)}">
+          ${coverOf(s, i)}
+          <div class="wrap inner">
+            <span class="kicker">ร้านยอดนิยม · ${catTh(s.category)}</span>
+            <h2>${esc(s.name)}</h2>
+            ${s.description ? `<p>${esc(s.description.slice(0, 120))}</p>` : ''}
+            <div class="meta">
+              ${s.rating ? `<span>★ ${s.rating} (${s.reviewCount} รีวิว)</span>` : ''}
+              <span>${s.orderCount} ออเดอร์</span>
+              <span>สั่งล่วงหน้า ${s.minLeadDays} วัน</span>
+              ${s.freeDeliveryMaxKm ? `<span>ส่งฟรี ${s.freeDeliveryMaxKm} กม.</span>` : ''}
+            </div>
+            <a class="btn primary lg" href="/s/${esc(s.slug)}">สั่งจากร้านนี้</a>
+          </div>
+        </div>`),
+      ];
+      $('#slides').innerHTML = slides.join('');
+      $('#dots').innerHTML = slides.map((_, i) => `<button role="tab" aria-label="สไลด์ ${i + 1}" class="${i ? '' : 'on'}" data-i="${i}"></button>`).join('');
+
+      // เลื่อนอัตโนมัติทุก 5 วินาที พร้อมแอนิเมชัน ลากนิ้ว/เมาส์เพื่อเลื่อนเองได้
+      const SLIDE_MS = 5000;
+      const box = $('#slides');
+      const slider = $('.slider');
+      slider.style.setProperty('--slide-ms', SLIDE_MS + 'ms');
+      const count = slides.length;
+      let idx = 0;
+      let timer;
+      const show = (i) => {
+        idx = (i + count) % count;
+        $$('.slide', box).forEach((s, j) => s.classList.toggle('active', j === idx));
+        $$('#dots button').forEach((d, j) => {
+          d.classList.remove('on');
+          d.setAttribute('aria-selected', j === idx);
+        });
+        const dot = $$('#dots button')[idx];
+        void dot.offsetWidth; // เริ่มแอนิเมชันแถบเวลาใหม่
+        dot.classList.add('on');
+        clearTimeout(timer);
+        if (count > 1) timer = setTimeout(next, SLIDE_MS);
+      };
+      const next = () => (document.hidden ? (timer = setTimeout(next, 1000)) : show(idx + 1));
+      $('#dots').onclick = (e) => { const b = e.target.closest('[data-i]'); if (b) show(+b.dataset.i); };
+      $('.arrow.prev').onclick = () => show(idx - 1);
+      $('.arrow.next').onclick = () => show(idx + 1);
+
+      // ปัดซ้าย/ขวาเพื่อเปลี่ยนหน้า (บนมือถือ)
+      let startX = null;
+      box.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('a,button')) return;
+        startX = e.clientX;
+        slider.classList.add('paused');
+        clearTimeout(timer);
+      });
+      window.addEventListener('pointerup', (e) => {
+        if (startX === null) return;
+        const dx = e.clientX - startX;
+        startX = null;
+        slider.classList.remove('paused');
+        show(Math.abs(dx) > 50 ? idx + (dx < 0 ? 1 : -1) : idx);
+      });
+      show(0);
+    }
+    buildSlider();
+
+    // ───── Grab-style features ─────
+    const SVC = {
+      buyer: [
+        { title: 'สั่งล่วงหน้า', sub: 'เห็นคิวว่างก่อนสั่ง', items: [
+          ['calendar', 'เลือกวันจากปฏิทินคิว', 'ระบบบอกเลยว่าวันไหนว่าง วันไหนคิวเต็ม หรือร้านหยุด'],
+          ['list', 'สั่งจำนวนเยอะได้', 'กดเพิ่มทีละถ้วยหรือพิมพ์จำนวน ใส่หมายเหตุแต่ละเมนูได้'],
+        ]},
+        { title: 'ส่งถึงที่ หรือไปรับเอง', sub: 'ส่งฟรีในระยะ 3 กม.', items: [
+          ['pin', 'ปักหมุดแล้วรู้ทันทีว่าส่งได้ไหม', 'เช็กระยะจากร้านและพื้นที่ที่ร้านส่ง'],
+          ['scooter', 'ค่าส่งตามระยะ', 'ใกล้ร้านส่งฟรี ไกลกว่านั้นเห็นค่าส่งก่อนกดสั่ง'],
+          ['store', 'มารับเองที่ร้าน', 'ไม่เสียค่าส่ง มีแผนที่นำทางไปร้าน'],
+        ]},
+        { title: 'คุยกับร้านได้ จ่ายง่าย', sub: 'รู้ทุกขั้นตอนของออเดอร์', items: [
+          ['chat', 'แชทกับร้านโดยตรง', 'ถามรายละเอียด ขอแก้ออเดอร์ แนบรหัสออเดอร์ในแชทได้'],
+          ['qr', 'QR พร้อมเพย์พร้อมยอด', 'สแกนจ่ายแล้วแนบสลิป หรือเลือกจ่ายปลายทาง'],
+          ['bell', 'ติดตามสถานะ', 'รอยืนยัน → กำลังทำ → กำลังไปส่ง → สำเร็จ'],
+        ]},
+      ],
+      seller: [
+        { title: 'คุมคิวได้ ไม่ทำไม่ทัน', sub: 'กดปุ่มเดียวจบ', items: [
+          ['calendar', 'ปิดรับวันนี้ / ปิดชั่วคราว', 'ปิดรับวันนี้แล้วเปิดเองอัตโนมัติพรุ่งนี้'],
+          ['list', 'กดวันที่คิวเต็มได้เอง', 'หรือตั้งจำนวนออเดอร์สูงสุดต่อวัน ระบบปิดให้อัตโนมัติ'],
+          ['bell', 'ตั้งเวลาปิดรับของวัน', 'สั่งหลังเวลานั้น ระบบนับเป็นออเดอร์ของวันถัดไป'],
+        ]},
+        { title: 'เปิดได้หลายร้าน', sub: 'บัญชีเดียว สลับร้านได้ทันที', items: [
+          ['shops', 'ขนมร้านหนึ่ง ข้าวกล่องอีกร้าน', 'แยกเมนู แยกออเดอร์ แยกยอดขาย ของแต่ละร้าน'],
+          ['chat', 'แชทกับลูกค้า', 'ตอบคำถาม ยืนยันรายละเอียด ทุกร้านรวมในกล่องเดียว'],
+        ]},
+        { title: 'รู้ว่าต้องทำอะไร เงินเข้าครบ', sub: 'ไม่ต้องจดเอง', items: [
+          ['scooter', 'รายการส่งของวันนี้', 'เปิดเส้นทางทั้งหมดใน Google Maps ได้ในคลิกเดียว'],
+          ['money', 'ยอดขาย / ยอดค้างชำระ', 'แยกโอนแล้ว รอตรวจสลิป และเก็บปลายทาง'],
+          ['chart', 'รายงานและดาวน์โหลด', 'เมนูขายดี กราฟ 14 วัน ส่งออกเป็นไฟล์ Excel'],
+        ]},
+      ],
+    };
+    function renderSvc(k) {
+      $('#svcBody').innerHTML = SVC[k].map((g, gi) => `
+        <div class="svc-group reveal">
+          <h3>${g.title}<small>${g.sub}</small></h3>
+          <div>${g.items.map(([ic, t, d]) => `<div class="svc-item"><span class="ico">${ICONS[ic]}</span><div><b>${t}</b><span>${d}</span></div></div>`).join('')}
+            ${k === 'seller' && gi === 0 ? `<a class="btn primary" style="margin-top:12px" href="${me.user ? '/account#open-shop' : '/login?next=/account%23open-shop'}">เปิดร้านฟรี</a>` : ''}
+          </div>
+        </div>`).join('');
+      revealOnScroll($('#svcBody'));
+    }
+    const svcTab = (k) => { $$('.svc-tabs button').forEach((x) => x.classList.toggle('on', x.dataset.svc === k)); renderSvc(k); };
+    $$('.svc-tabs button').forEach((b) => (b.onclick = () => svcTab(b.dataset.svc)));
+    svcTab(location.hash === '#for-shops' ? 'seller' : 'buyer');
+    window.addEventListener('hashchange', () => location.hash === '#for-shops' && svcTab('seller'));
+    revealOnScroll();
+
+    // ───── ตัวกรอง ─────
+    const params = new URLSearchParams(location.search);
+    const state = { q: params.get('q') || '', category: params.get('category') || '', province: '', district: '', open: false, free: false, delivery: false, pickup: false, inRange: false, minRating: 0, sort: 'popular', loc: null };
+    $('#q').value = state.q;
+
+    $('#cats').innerHTML = [{ key: '', th: 'ทั้งหมด' }, ...CATEGORIES].map((c) =>
+      `<button class="chip ${c.key === state.category ? 'on' : ''}" data-cat="${c.key}" role="tab" aria-selected="${c.key === state.category}"><span class="ic">${c.key ? catIcon(c.key) : ICONS.all}</span>${c.th}</button>`).join('');
+    $('#cats').onclick = (e) => {
+      const b = e.target.closest('[data-cat]');
+      if (!b) return;
+      state.category = b.dataset.cat;
+      $$('#cats .chip').forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-selected', x === b); });
+      load();
+    };
+    $('#filters').onclick = (e) => {
+      const t = e.target.closest('[data-t]');
+      const s = e.target.closest('[data-star]');
+      if (t) {
+        state[t.dataset.t] = !state[t.dataset.t];
+        t.classList.toggle('on', state[t.dataset.t]);
+        t.setAttribute('aria-pressed', state[t.dataset.t]);
+      } else if (s) {
+        const v = +s.dataset.star;
+        state.minRating = state.minRating === v ? 0 : v;
+        $$('[data-star]').forEach((x) => x.classList.toggle('on', +x.dataset.star === state.minRating));
+      } else return;
+      load();
+    };
+    $('#sort').onchange = (e) => {
+      state.sort = e.target.value;
+      if (state.sort === 'near' && !state.loc && !myLoc) {
+        if (!navigator.geolocation) { toast('อุปกรณ์นี้หาตำแหน่งไม่ได้', 'error'); return; }
+        toast('กำลังหาตำแหน่งของคุณ…');
+        navigator.geolocation.getCurrentPosition(
+          (p) => { state.loc = { lat: p.coords.latitude, lng: p.coords.longitude }; load(); },
+          () => { toast('หาตำแหน่งไม่ได้ เรียงตามยอดนิยมแทน', 'error'); e.target.value = state.sort = 'popular'; load(); },
+          { timeout: 10000 }
+        );
+        return;
+      }
+      load();
+    };
+
+    let seq = 0;
+    async function load() {
+      const my = ++seq;
+      const qs = new URLSearchParams();
+      if (state.q) qs.set('q', state.q);
+      if (state.category) qs.set('category', state.category);
+      for (const k of ['open', 'free', 'delivery', 'pickup', 'inRange']) if (state[k]) qs.set(k, '1');
+      if (state.province) qs.set('province', state.province);
+      if (state.district) qs.set('district', state.district);
+      if (state.minRating) qs.set('minRating', state.minRating);
+      qs.set('sort', state.sort);
+      if (state.loc) { qs.set('lat', state.loc.lat); qs.set('lng', state.loc.lng); }
+      const shareQs = new URLSearchParams();
+      if (state.q) shareQs.set('q', state.q);
+      if (state.category) shareQs.set('category', state.category);
+      history.replaceState(null, '', (shareQs.toString() ? '?' + shareQs : '/') + location.hash);
+      $('#listTitle').textContent = state.q ? `ผลการค้นหา “${state.q}”` : state.category ? catTh(state.category) : 'ร้านทั้งหมด';
+      $('#shops').innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
+      try {
+        const { shops } = await api('/api/shops?' + qs);
+        if (my !== seq) return;
+        $('#count').textContent = shops.length ? `${shops.length} ร้าน` : '';
+        if (!shops.length) {
+          $('#shops').innerHTML = `<div class="empty" style="grid-column:1/-1">ไม่พบร้านที่ตรงกับตัวกรอง<br><br><button class="btn" id="clearF">ล้างตัวกรอง</button></div>`;
+          $('#clearF').onclick = () => (location.href = '/');
+          return;
+        }
+        $('#shops').classList.remove('anim-in');
+        void $('#shops').offsetWidth;
+        $('#shops').classList.add('anim-in');
+        $('#shops').innerHTML = shops.map((s) => {
+          const state = s.accepting ? '<span class="state-on">เปิดรับออเดอร์</span>' : s.statusMode === 'today' ? '<span class="state-off" style="background:#fff4d6;color:#8a5a00">ปิดรับวันนี้</span>' : '<span class="state-off">ปิดชั่วคราว</span>';
+          return `
+          <a class="shop-card ${s.accepting ? '' : 'closed'}" href="/s/${esc(s.slug)}">
+            <div class="cover-wrap">
+              ${state}
+              ${s.coverImage ? `<img class="cover" src="${esc(s.coverImage)}" alt="" loading="lazy">` : `<div class="cover">${bannerArt(s.category, s.id)}</div>`}
+            </div>
+            <div class="body">
+              <div class="row between" style="gap:6px"><span class="cat-tag">${catTh(s.category)}</span>${s.rating ? `<span class="small"><span style="color:#f5a524">★</span> <b>${s.rating}</b> <span class="muted">(${s.reviewCount})</span></span>` : '<span class="small muted">ยังไม่มีรีวิว</span>'}</div>
+              <h3>${esc(s.name)}</h3>
+              ${s.province || s.district ? `<div class="area-line">${ICONS.pin}<span>${esc(areaLabel(s.province, s.district))}</span></div>` : ''}
+              ${s.description ? `<p class="small muted" style="margin:0">${esc(s.description.slice(0, 90))}${s.description.length > 90 ? '…' : ''}</p>` : ''}
+              ${s.forMe ? `<div class="forme ${s.forMe.inRange ? (s.forMe.fee === 0 ? 'free' : '') : 'out'}">
+                  <b>ห่างคุณ ${s.forMe.distanceKm} กม.</b>
+                  <span>${!s.deliveryEnabled ? 'รับเองที่ร้านเท่านั้น' : s.forMe.inRange ? (s.forMe.fee === 0 ? 'ส่งฟรี' : `ค่าส่ง ${baht(s.forMe.fee)}`) : `เกินระยะส่ง (${s.defaultRadiusKm} กม.)${s.pickupEnabled ? ' · รับเองได้' : ''}`}</span>
+                </div>` : ''}
+              <div class="meta">
+                ${!s.forMe && s.deliveryEnabled && s.freeDeliveryMaxKm ? `<span class="pill ok">ส่งฟรี ${s.freeDeliveryMaxKm} กม.</span>` : ''}
+                <span class="pill grey">ล่วงหน้า ${s.minLeadDays} วัน</span>
+                <span class="pill grey">${s.productCount} เมนู</span>
+                ${s.pickupEnabled ? '<span class="pill grey">รับเองได้</span>' : ''}
+              </div>
+            </div>
+          </a>`;
+        }).join('');
+      } catch (e) {
+        toastErr(e);
+      }
+    }
+
+    $('#searchForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      state.q = $('#q').value.trim();
+      load();
+      $('#listTitle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    load();
+  </script>
+</body>
+</html>

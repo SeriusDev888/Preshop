@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ออเดอร์ของฉัน — Preshop</title>
+  <meta name="theme-color" content="#d62828">
+  <link rel="icon" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Preshop">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/v2.css">
+  <link rel="stylesheet" href="/css/v3.css">
+</head>
+<body>
+  <main>
+    <div class="wrap" style="max-width:760px">
+      <h1>ออเดอร์ของฉัน</h1>
+      <div class="filters">
+        <select id="f"><option value="active">กำลังดำเนินการ</option><option value="done">สำเร็จแล้ว</option><option value="cancelled">ยกเลิก</option><option value="">ทั้งหมด</option></select>
+      </div>
+      <div id="list"><p class="muted">กำลังโหลด…</p></div>
+    </div>
+  </main>
+  <script type="module">
+    import { $, api, esc, baht, renderChrome, requireLogin, fmtDate, relDay, statusPill, payPill, fulfillPill } from '/js/common.js';
+    await renderChrome('orders');
+    await requireLogin();
+    const { orders } = await api('/api/orders/mine');
+
+    function render() {
+      const f = $('#f').value;
+      const list = orders.filter((o) =>
+        f === 'active' ? !['completed', 'cancelled'].includes(o.status) : f === 'done' ? o.status === 'completed' : f === 'cancelled' ? o.status === 'cancelled' : true
+      );
+      if (!list.length) {
+        $('#list').innerHTML = `<div class="empty">${orders.length ? 'ไม่มีออเดอร์ในหมวดนี้' : 'ยังไม่เคยสั่ง'}<br><br><a class="btn primary" href="/">ดูร้านทั้งหมด</a></div>`;
+        return;
+      }
+      $('#list').innerHTML = list.map((o) => `
+        <a class="order-row" href="/o/${esc(o.code)}">
+          <div class="row between">
+            <b>${esc(o.shop.name)}</b>
+            <span class="row" style="gap:6px">${statusPill(o.status)}${payPill(o.paymentStatus, o.paymentMethod)}</span>
+          </div>
+          <div class="small muted num">${esc(o.code)}</div>
+          <div style="margin-top:6px">${fulfillPill(o.fulfillment)} รับ <b>${fmtDate(o.receiveDate)} ${o.receiveTime}</b> ${relDay(o.receiveDate) ? `<span class="pill">${relDay(o.receiveDate)}</span>` : ''}</div>
+          <div class="small" style="margin-top:4px">${o.items.map((i) => `${esc(i.name)} ×${i.qty}`).join(', ')}</div>
+          <div class="num" style="margin-top:4px;font-weight:600">${baht(o.total)}</div>
+        </a>`).join('');
+    }
+    $('#f').onchange = render;
+    render();
+  </script>
+</body>
+</html>

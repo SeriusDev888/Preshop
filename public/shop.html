@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ร้าน — Preshop</title>
+  <meta name="theme-color" content="#d62828">
+  <link rel="icon" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Preshop">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/v2.css">
+  <link rel="stylesheet" href="/css/v3.css">
+</head>
+<body>
+  <div id="shopHead"></div>
+
+  <main style="padding-top:20px">
+    <div class="wrap">
+      <ol class="steps" id="steps">
+        <li data-step="1" class="on">1. เลือกเมนู</li>
+        <li data-step="2">2. วันรับ & ที่อยู่</li>
+        <li data-step="3">3. สั่งเรียบร้อย</li>
+      </ol>
+
+      <div id="closedNotice" class="notice warn hidden" style="margin-bottom:16px"></div>
+
+      <!-- STEP 1 : MENU -->
+      <section id="step1">
+        <div class="cat-tabs" id="cats"></div>
+        <div class="menu-grid" id="menu"></div>
+
+        <div class="section-title"><h2>รีวิวและข้อเสนอแนะ</h2><span id="ratingSum" class="muted small"></span></div>
+        <div class="grid-2">
+          <div class="card" id="reviews"><p class="muted">กำลังโหลด…</p></div>
+          <form class="card stack" id="fbForm">
+            <h3>เขียนถึงร้านนี้</h3>
+            <div class="choices" style="grid-template-columns:repeat(3,1fr)">
+              <label class="choice"><input type="radio" name="fbKind" value="review" checked><span class="box"><b>รีวิว</b><small>ให้คะแนนร้าน</small></span></label>
+              <label class="choice"><input type="radio" name="fbKind" value="request"><span class="box"><b>อยากให้มี</b><small>เมนู/บริการ</small></span></label>
+              <label class="choice"><input type="radio" name="fbKind" value="suggestion"><span class="box"><b>คำแนะนำ</b><small>ส่งถึงร้าน</small></span></label>
+            </div>
+            <div id="starWrap"><span class="field-label">คะแนน</span><div class="star-input" id="stars"></div></div>
+            <label class="field"><span id="fbLabel">เล่าให้ร้านฟังหน่อย</span><textarea id="fbMsg" maxlength="1000" required></textarea></label>
+            <button class="btn primary">ส่ง</button>
+            <p class="small muted" style="margin:0">ต้องเข้าสู่ระบบก่อนส่ง รีวิวจะแสดงต่อสาธารณะ ส่วนคำแนะนำ/สิ่งที่อยากให้มีจะเห็นเฉพาะร้าน</p>
+          </form>
+        </div>
+      </section>
+
+      <!-- STEP 2 : DETAILS -->
+      <section id="step2" class="hidden">
+        <div class="layout-checkout">
+          <form id="checkout" class="stack" novalidate>
+            <fieldset>
+              <legend>วันและเวลาที่ต้องการรับ</legend>
+              <input type="hidden" id="date">
+              <div class="field-label">เลือกวันรับ (ดูคิวว่างได้เลย)</div>
+              <div class="daystrip" id="days"><div class="skeleton" style="min-height:70px;grid-column:1/-1"></div></div>
+              <div class="legend">
+                <span><i style="background:var(--ok-bg);border:1px solid var(--ok)"></i>ว่าง</span>
+                <span><i style="background:var(--brand)"></i>คิวเต็ม</span>
+                <span><i style="background:#e4e4e7"></i>ร้านหยุด</span>
+                <span><i style="background:#111"></i>วันที่เลือก</span>
+              </div>
+              <label class="field" style="margin-top:14px;max-width:240px"><span>เวลาที่ต้องการรับ</span><input type="time" id="time" required></label>
+              <p class="field-hint" id="dateHint"></p>
+              <p id="dateErr" class="notice bad hidden" style="margin-top:8px"></p>
+            </fieldset>
+
+            <fieldset>
+              <legend>รับสินค้าอย่างไร</legend>
+              <div class="choices">
+                <label class="choice"><input type="radio" name="ful" value="delivery"><span class="box"><b>ให้ร้านไปส่ง</b><small id="delivHint"></small></span></label>
+                <label class="choice"><input type="radio" name="ful" value="pickup"><span class="box"><b>มารับเองที่ร้าน</b><small id="pickHint"></small></span></label>
+              </div>
+              <p id="fulErr" class="field-hint"></p>
+
+              <div id="deliveryBox" class="stack hidden" style="margin-top:14px">
+                <label class="field hidden" id="areaWrap"><span>พื้นที่จัดส่ง</span><select id="area"></select></label>
+                <div>
+                  <div class="row between" style="margin-bottom:6px">
+                    <span class="field-label" style="margin:0">ปักหมุดจุดส่ง (แตะบนแผนที่หรือลากหมุด)</span>
+                    <button type="button" class="btn sm" id="locBtn">ใช้ตำแหน่งปัจจุบัน</button>
+                  </div>
+                  <div id="map" class="map"></div>
+                  <p class="field-hint" id="distInfo">วงสีส้มคือระยะที่ร้านส่งถึง</p>
+                </div>
+                <label class="field"><span>ที่อยู่ / จุดสังเกต</span><textarea id="address" maxlength="500" placeholder="บ้านเลขที่ ซอย ถนน หมู่บ้าน จุดสังเกต"></textarea></label>
+              </div>
+              <div id="pickupBox" class="notice hidden" style="margin-top:14px"></div>
+            </fieldset>
+
+            <fieldset>
+              <legend>ผู้รับ</legend>
+              <div class="grid-2">
+                <label class="field"><span>ชื่อผู้รับ</span><input type="text" id="rname" maxlength="80" autocomplete="name" required></label>
+                <label class="field"><span>เบอร์ผู้รับ</span><input type="tel" id="rphone" inputmode="numeric" maxlength="12" autocomplete="tel" required></label>
+              </div>
+              <label class="field" style="margin-top:12px"><span>ใช้ในโอกาส</span>
+                <select id="purpose">
+                  <option value="">ไม่ระบุ</option>
+                  <option>ทานเอง / ที่บ้าน</option>
+                  <option>ทำบุญ / ถวายพระ</option>
+                  <option>งานเลี้ยง / ประชุม</option>
+                  <option>งานแต่ง / งานบวช</option>
+                  <option>งานศพ / สวดอภิธรรม</option>
+                  <option>ของฝาก / ของขวัญ</option>
+                  <option>อื่นๆ</option>
+                </select>
+              </label>
+              <label class="field" style="margin-top:12px"><span>หมายเหตุถึงร้าน</span><textarea id="bnote" maxlength="500" placeholder="เช่น แยกถุงละ 10 ถ้วย, ขอช้อน, ฝากไว้กับ รปภ."></textarea></label>
+            </fieldset>
+
+            <fieldset>
+              <legend>ชำระเงิน</legend>
+              <div class="choices">
+                <label class="choice" id="payTransfer"><input type="radio" name="pay" value="transfer"><span class="box"><b>โอน / พร้อมเพย์</b><small>แนบสลิปหลังสั่ง</small></span></label>
+                <label class="choice" id="payCod"><input type="radio" name="pay" value="cod"><span class="box"><b>ชำระปลายทาง</b><small>จ่ายตอนรับของ</small></span></label>
+              </div>
+            </fieldset>
+          </form>
+
+          <aside class="card stack">
+            <div class="row between"><h3 style="margin:0">สรุปรายการ</h3><button class="btn ghost sm" id="backBtn" type="button">แก้เมนู</button></div>
+            <div class="cart-lines" id="cartLines"></div>
+            <div class="totals" id="totals"></div>
+            <div id="quoteErr" class="notice bad hidden"></div>
+            <button class="btn primary block lg" id="submitBtn" type="button">ยืนยันสั่งซื้อ</button>
+            <p class="small muted" style="margin:0">ร้านจะยืนยันออเดอร์อีกครั้ง ติดตามสถานะได้ที่ “ออเดอร์ของฉัน”</p>
+          </aside>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="cartbar hidden" id="cartbar">
+    <div class="wrap">
+      <div class="sum"><div class="small muted" id="cbCount"></div><b class="num" id="cbTotal"></b></div>
+      <button class="btn ghost sm" id="clearCart">ล้าง</button>
+      <button class="btn primary lg" id="nextBtn">ถัดไป</button>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script type="module">
+    import {
+      $, $$, api, esc, baht, renderChrome, getMe, toast, toastErr, busy, imgOrPh, contactLinks,
+      fmtDate, addDays, TH_DAYS, haversineKm, mapsLink, animate, feeRule, freeRule, feeAt, openChat, pickMyLocation,
+    } from '/js/common.js';
+    import { catTh, ICONS } from '/js/icons.js';
+    import { areaLabel } from '/js/thai.js';
+
+    const slug = decodeURIComponent(location.pathname.split('/')[2] || new URLSearchParams(location.search).get('s') || '');
+    const CART_KEY = 'preshop.cart.' + slug;
+    const DRAFT_KEY = 'preshop.draft.' + slug;
+    const store = {
+      get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+      set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+      del(k) { try { localStorage.removeItem(k); } catch {} },
+    };
+
+    let shop, products, today, me;
+    const cart = new Map(); // productId -> { qty, note }
+    let remaining = {};      // productId -> จำนวนที่ยังรับได้ในวันที่เลือก
+    let category = '';
+    let rating = 5;
+
+    me = await renderChrome();
+
+    try {
+      ({ shop, products, today } = await api('/api/shops/' + encodeURIComponent(slug)));
+    } catch (e) {
+      $('main .wrap').innerHTML = `<div class="empty">${esc(e.message)}<br><br><a class="btn" href="/">กลับหน้าแรก</a></div>`;
+      throw e;
+    }
+    document.title = `${shop.name} — Preshop`;
+    const ownShop = (me.shops || []).some((s) => s.id === shop.id);
+    const byId = new Map(products.map((p) => [p.id, p]));
+
+    for (const [id, v] of Object.entries(store.get(CART_KEY) || {})) {
+      if (byId.has(+id) && v.qty > 0) cart.set(+id, v);
+    }
+
+    // ───────── header ─────────
+    const radiusOf = (p) => p.deliveryRadiusKm ?? shop.defaultRadiusKm;
+    const leadOf = (p) => Math.max(shop.minLeadDays, p.leadDays ?? shop.minLeadDays);
+    const closedDays = shop.closedWeekdays.map((d) => TH_DAYS[d]).join(', ');
+    $('#shopHead').innerHTML = `
+      <div class="shop-head">
+        ${shop.coverImage ? `<img class="cover" src="${esc(shop.coverImage)}" alt="">` : ''}
+        <div class="wrap">
+          <div class="info">
+            <div style="flex:1;min-width:260px">
+              <span class="cat-tag">${catTh(shop.category)}</span>
+              <div class="row"><h1>${esc(shop.name)}</h1>${shop.accepting ? '<span class="state-on">เปิดรับออเดอร์</span>' : shop.statusMode === 'today' ? '<span class="state-off" style="background:#fff4d6;color:#8a5a00">ปิดรับวันนี้</span>' : '<span class="state-off">ปิดรับชั่วคราว</span>'}</div>
+              ${shop.province || shop.district ? `<div class="area-line" style="margin:2px 0 8px">${ICONS.pin}<span>${esc(areaLabel(shop.province, shop.district))}</span></div>` : ''}
+              ${shop.description ? `<p class="muted" style="white-space:pre-line">${esc(shop.description)}</p>` : ''}
+              ${shop.forMe ? `<div class="forme ${shop.forMe.inRange ? (shop.forMe.fee === 0 ? 'free' : '') : 'out'}" style="max-width:420px;margin-bottom:10px">
+                  <b>ห่างจากที่อยู่ของคุณ ${shop.forMe.distanceKm} กม.</b>
+                  <span>${!shop.deliveryEnabled ? 'รับเองที่ร้านเท่านั้น' : shop.forMe.inRange ? (shop.forMe.fee === 0 ? 'ส่งฟรี' : `ค่าส่ง ${baht(shop.forMe.fee)}`) : 'เกินระยะส่ง เลือกมารับเองได้'}</span>
+                </div>` : me.user ? '<button class="btn sm" id="setLoc" type="button" style="margin-bottom:10px">ปักหมุดที่อยู่ของฉัน เพื่อดูค่าส่ง</button>' : ''}
+              <div class="row" style="gap:10px;align-items:center">
+                ${ownShop ? '<a class="btn sm" href="/seller">จัดการร้านนี้</a>' : '<button class="btn dark sm" id="chatShop" type="button">แชทกับร้าน</button>'}
+                <div class="contact-list">${contactLinks(shop.contacts, shop.phone)}</div>
+              </div>
+            </div>
+          </div>
+          <div class="facts" style="padding-bottom:18px">
+            <div class="fact"><span>สั่งล่วงหน้า</span><b>อย่างน้อย ${shop.minLeadDays} วัน</b></div>
+            <div class="fact"><span>เวลารับของ</span><b>${shop.openTime}–${shop.closeTime} น.</b>${closedDays ? `<span>หยุด ${closedDays}</span>` : ''}</div>
+            ${shop.deliveryEnabled ? `<div class="fact"><span>ค่าส่งตามระยะ (ส่งไม่เกิน ${shop.defaultRadiusKm} กม.)</span><b>${feeRule(shop)}</b>
+              <div class="fee-table">${feeSteps().map(([k, f]) => `<span>${k} กม. ${baht(f)}</span>`).join('')}</div>
+              </div>` : ''}
+            <div class="fact"><span>รับออเดอร์ถึง</span><b>${esc(shop.orderCutoffTime)} น. ทุกวัน</b><span>หลังจากนั้นนับเป็นสั่งวันถัดไป</span></div>
+            ${shop.pickupEnabled ? `<div class="fact"><span>รับเองที่ร้าน</span><b>${esc(shop.address || 'สอบถามร้าน')}</b></div>` : ''}
+            ${shop.areas.length ? `<div class="fact"><span>พื้นที่ส่ง</span><b>${esc(shop.areas.join(', '))}</b></div>` : ''}
+            ${shop.minOrderAmount ? `<div class="fact"><span>ยอดขั้นต่ำ</span><b>${baht(shop.minOrderAmount)}</b></div>` : ''}
+          </div>
+        </div>
+      </div>`;
+
+    // ตัวอย่างค่าส่งที่ระยะต่างๆ จนถึงระยะส่งสูงสุด
+    function feeSteps() {
+      const max = shop.defaultRadiusKm;
+      const f = shop.freeDeliveryMaxKm || 0;
+      const steps = [...new Set([f || 1, f + 1, f + 2, max].map((k) => Math.max(1, Math.min(max, Math.ceil(k)))))];
+      return steps.sort((a, b) => a - b).map((k) => [k, feeAt(shop, k)]);
+    }
+    const feeText = () => feeRule(shop);
+
+    if (!shop.accepting) {
+      $('#closedNotice').textContent = `${shop.statusReason} — ดูเมนูได้ แต่ยังสั่งไม่ได้`;
+      $('#closedNotice').classList.remove('hidden');
+    } else if (shop.pastCutoff) {
+      $('#closedNotice').innerHTML = `เลยเวลารับออเดอร์ของวันนี้แล้ว (${esc(shop.orderCutoffTime)} น.) ออเดอร์ที่สั่งตอนนี้จะ<b>นับเป็นของวันพรุ่งนี้</b>`;
+      $('#closedNotice').className = 'notice';
+    }
+    $('#chatShop')?.addEventListener('click', () => openChat({ shopSlug: slug }));
+    $('#setLoc')?.addEventListener('click', async () => { if (await pickMyLocation()) location.reload(); });
+
+    // ───────── menu ─────────
+    const cats = [...new Set(products.map((p) => p.category).filter(Boolean))];
+    if (cats.length) {
+      $('#cats').innerHTML = ['', ...cats].map((c) => `<button type="button" data-cat="${esc(c)}" class="${c === category ? 'on' : ''}">${esc(c || 'ทั้งหมด')}</button>`).join('');
+      $('#cats').onclick = (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        category = b.dataset.cat;
+        $$('#cats button').forEach((x) => x.classList.toggle('on', x === b));
+        renderMenu();
+      };
+    } else $('#cats').remove();
+
+    function tagsFor(p) {
+      const t = [];
+      if (leadOf(p) > shop.minLeadDays) t.push(`<span class="pill warn">ล่วงหน้า ${leadOf(p)} วัน</span>`);
+      if (!p.deliveryAllowed) t.push('<span class="pill grey">รับเองเท่านั้น</span>');
+      else if (!p.pickupAllowed) t.push('<span class="pill grey">จัดส่งเท่านั้น</span>');
+      if (p.deliveryAllowed && shop.deliveryEnabled && p.deliveryRadiusKm != null) t.push(`<span class="pill grey">ส่ง ≤ ${p.deliveryRadiusKm} กม.</span>`);
+      if (p.allowedAreas.length) t.push(`<span class="pill grey">ส่งเฉพาะ ${esc(p.allowedAreas.join(', '))}</span>`);
+      if (p.minQty > 1) t.push(`<span class="pill grey">ขั้นต่ำ ${p.minQty} ${esc(p.unit)}</span>`);
+      if (p.dailyLimit) {
+        const left = remaining[p.id];
+        t.push(left != null ? `<span class="pill ${left ? 'info' : 'bad'}">${left ? `เหลือ ${left} ${esc(p.unit)}` : 'วันนี้เต็ม'}</span>` : `<span class="pill grey">รับวันละ ${p.dailyLimit}</span>`);
+      }
+      return t.join('');
+    }
+
+    function renderMenu() {
+      const list = products.filter((p) => !category || p.category === category);
+      if (!products.length) {
+        $('#menu').innerHTML = '<div class="empty" style="grid-column:1/-1">ร้านยังไม่ได้เพิ่มเมนู</div>';
+        return;
+      }
+      $('#menu').classList.remove('anim-in');
+      void $('#menu').offsetWidth;
+      $('#menu').classList.add('anim-in');
+      $('#menu').innerHTML = list.map(dishHtml).join('');
+    }
+
+    function dishHtml(p) {
+        const q = cart.get(p.id)?.qty || 0;
+        const soldout = remaining[p.id] === 0;
+        return `<article class="dish ${q ? 'in-cart' : ''} ${soldout ? 'soldout' : ''}" data-id="${p.id}">
+          ${q ? `<span class="incart-badge">${q}</span>` : ''}
+          ${imgOrPh(p.image, p.name, 'pic', shop.category)}
+          <div class="body">
+            <h3>${esc(p.name)}</h3>
+            ${p.description ? `<div class="desc">${esc(p.description)}</div>` : ''}
+            <div class="price num">${baht(p.price)} <small>/ ${esc(p.unit)}</small></div>
+            <div class="tags">${tagsFor(p)}</div>
+            <div class="foot">
+              ${q
+                ? `<div class="stepper"><button type="button" data-act="dec" aria-label="ลด">−</button><input type="number" inputmode="numeric" min="0" value="${q}" data-act="set" aria-label="จำนวน ${esc(p.name)}"><button type="button" data-act="inc" aria-label="เพิ่ม">+</button></div>`
+                : `<button type="button" class="btn block" data-act="add" ${!shop.accepting || soldout ? 'disabled' : ''}>${!shop.accepting ? (shop.statusMode === 'today' ? 'ปิดรับวันนี้' : 'ร้านปิดรับชั่วคราว') : soldout ? 'วันนี้เต็มแล้ว' : '+ เพิ่มลงตะกร้า'}</button>`}
+            </div>
+          </div>
+        </article>`;
+    }
+
+    // อัปเดตเฉพาะการ์ดที่กด พร้อมแอนิเมชัน
+    function refreshDish(id, grew) {
+      const el = $(`.dish[data-id="${id}"]`);
+      if (!el) return;
+      const tmp = document.createElement('div');
+      tmp.innerHTML = dishHtml(byId.get(id));
+      const fresh = tmp.firstElementChild;
+      el.replaceWith(fresh);
+      if (grew) {
+        animate(fresh, 'pop');
+        animate(fresh.querySelector('.incart-badge'), 'bump');
+        animate($('#cbTotal'), 'bump');
+      }
+    }
+
+    function setQty(id, qty) {
+      const p = byId.get(id);
+      qty = Math.max(0, Math.min(99999, Math.floor(qty) || 0));
+      if (qty > 0 && qty < p.minQty) qty = p.minQty;
+      if (qty === 0) cart.delete(id);
+      else cart.set(id, { qty, note: cart.get(id)?.note || '' });
+      saveCart();
+    }
+    function saveCart() {
+      store.set(CART_KEY, Object.fromEntries(cart));
+      renderCartbar();
+    }
+
+    $('#menu').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-act]');
+      if (!b || b.tagName === 'INPUT') return;
+      const id = +b.closest('.dish').dataset.id;
+      const p = byId.get(id);
+      const cur = cart.get(id)?.qty || 0;
+      if (b.dataset.act === 'add') setQty(id, p.minQty);
+      if (b.dataset.act === 'inc') setQty(id, cur + 1);
+      if (b.dataset.act === 'dec') setQty(id, cur - 1 < p.minQty ? 0 : cur - 1);
+      refreshDish(id, b.dataset.act !== 'dec');
+    });
+    $('#menu').addEventListener('change', (e) => {
+      if (e.target.dataset.act !== 'set') return;
+      const id = +e.target.closest('.dish').dataset.id;
+      setQty(id, +e.target.value);
+      refreshDish(id, true);
+    });
+
+    function cartTotals() {
+      let count = 0, sum = 0;
+      for (const [id, v] of cart) {
+        const p = byId.get(id);
+        count += v.qty;
+        sum += p.price * v.qty;
+      }
+      return { count, sum };
+    }
+    function renderCartbar() {
+      const { count, sum } = cartTotals();
+      const onStep1 = !$('#step1').classList.contains('hidden');
+      $('#cartbar').classList.toggle('hidden', !count || !onStep1);
+      $('#cbCount').textContent = `${cart.size} รายการ · ${count} ชิ้น`;
+      $('#cbTotal').textContent = baht(sum);
+    }
+    $('#clearCart').onclick = () => {
+      cart.clear();
+      saveCart();
+      renderMenu();
+    };
+
+    // ───────── reviews ─────────
+    async function loadReviews() {
+      const { reviews } = await api(`/api/shops/${encodeURIComponent(slug)}/reviews`);
+      $('#ratingSum').textContent = shop.reviewCount ? `★ ${shop.rating} จาก ${shop.reviewCount} รีวิว` : '';
+      $('#reviews').innerHTML = reviews.length
+        ? reviews.map((r) => `<div class="review">
+            <div class="row between"><b>${esc(r.userName)}</b><span class="stars">${'★'.repeat(r.rating)}<span style="color:#d4d4d8">${'★'.repeat(5 - r.rating)}</span></span></div>
+            <div class="small muted">${r.verified ? 'เคยสั่งจริง · ' : ''}${new Date(r.createdAt).toLocaleDateString('th-TH')}</div>
+            <p style="margin:6px 0 0;white-space:pre-line">${esc(r.message)}</p>
+            ${r.reply ? `<div class="reply"><b>ร้านตอบ:</b> ${esc(r.reply)}</div>` : ''}
+          </div>`).join('')
+        : '<p class="muted" style="margin:0">ยังไม่มีรีวิว</p>';
+    }
+    loadReviews().catch(() => {});
+
+    function renderStars() {
+      $('#stars').innerHTML = [1, 2, 3, 4, 5].map((n) => `<button type="button" data-n="${n}" class="${n <= rating ? 'on' : ''}" aria-label="${n} ดาว">★</button>`).join('');
+    }
+    renderStars();
+    $('#stars').onclick = (e) => {
+      const b = e.target.closest('button');
+      if (b) { rating = +b.dataset.n; renderStars(); }
+    };
+    $('#fbForm').addEventListener('change', () => {
+      const kind = $('input[name=fbKind]:checked').value;
+      $('#starWrap').classList.toggle('hidden', kind !== 'review');
+      $('#fbLabel').textContent = { review: 'เล่าให้ร้านฟังหน่อย', request: 'อยากให้ร้านเพิ่มเมนูหรือบริการอะไร', suggestion: 'คำแนะนำถึงร้าน' }[kind];
+    });
+    $('#fbForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!me.user) {
+        location.href = '/login?next=' + encodeURIComponent(location.pathname);
+        return;
+      }
+      const kind = $('input[name=fbKind]:checked').value;
+      try {
+        await busy(e.submitter, () => api('/api/feedback', { method: 'POST', body: { shopSlug: slug, kind, rating, message: $('#fbMsg').value } }));
+        $('#fbMsg').value = '';
+        toast(kind === 'review' ? 'ขอบคุณสำหรับรีวิว' : 'ส่งถึงร้านแล้ว', 'ok');
+        if (kind === 'review') loadReviews();
+      } catch (err) {
+        toastErr(err);
+      }
+    });
+
+    // ───────── step navigation ─────────
+    function goStep(n) {
+      $('#step1').classList.toggle('hidden', n !== 1);
+      $('#step2').classList.toggle('hidden', n !== 2);
+      $$('#steps li').forEach((li) => {
+        const s = +li.dataset.step;
+        li.className = s === n ? 'on' : s < n ? 'done' : '';
+      });
+      renderCartbar();
+      window.scrollTo({ top: 0 });
+      if (n === 2) enterCheckout();
+      if (n === 1) renderMenu();
+    }
+    $('#nextBtn').onclick = () => {
+      if (!cart.size) return toast('ยังไม่ได้เลือกเมนู');
+      history.pushState({ step: 2 }, '', '#checkout');
+      goStep(2);
+    };
+    $('#backBtn').onclick = () => history.back();
+    window.addEventListener('popstate', () => goStep(location.hash === '#checkout' && cart.size ? 2 : 1));
+
+    // ───────── checkout ─────────
+    const cartProducts = () => [...cart.keys()].map((id) => byId.get(id));
+    let map, marker, circle, pin = null;
+
+    // สั่งหลังเวลาปิดรับของวัน → นับจากพรุ่งนี้
+    function minDate() {
+      return addDays(shop.orderBaseDate, Math.max(shop.minLeadDays, ...cartProducts().map(leadOf)));
+    }
+
+    // ปฏิทินคิว: ว่าง / เต็ม / หยุด
+    let calStatus = {};
+    async function renderDays() {
+      const lead = Math.max(shop.minLeadDays, ...cartProducts().map(leadOf));
+      let cal;
+      try {
+        cal = await api(`/api/shops/${encodeURIComponent(slug)}/calendar?lead=${lead}`);
+      } catch (e) {
+        $('#days').innerHTML = `<div class="notice bad" style="grid-column:1/-1">${esc(e.message)}</div>`;
+        return;
+      }
+      calStatus = Object.fromEntries(cal.days.map((d) => [d.date, d.status]));
+      const list = cal.days.filter((d) => d.status !== 'soon' && d.status !== 'far').slice(0, 21);
+      const cur = $('#date').value;
+      if (!cur || calStatus[cur] !== 'open') {
+        const first = list.find((d) => d.status === 'open');
+        $('#date').value = first ? first.date : '';
+      }
+      const LBL = { open: 'ว่าง', full: 'เต็ม', closed: 'หยุด' };
+      const W = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+      const M = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+      $('#days').innerHTML = list.length
+        ? list.map((d) => {
+            const dt = new Date(d.date + 'T00:00:00Z');
+            const on = d.date === $('#date').value;
+            return `<button type="button" class="day ${d.status} ${on ? 'on' : ''}" data-date="${d.date}" ${d.status !== 'open' ? 'disabled' : ''} aria-pressed="${on}"
+              aria-label="${fmtDate(d.date)} ${LBL[d.status]}"><span class="w">${W[dt.getUTCDay()]}</span><span class="n">${dt.getUTCDate()}</span><span class="m">${M[dt.getUTCMonth()]}</span><span class="st">${LBL[d.status]}</span></button>`;
+          }).join('')
+        : '<div class="notice warn" style="grid-column:1/-1">ช่วงนี้คิวเต็มทุกวัน ลองแชทถามร้านได้</div>';
+      onDateChange();
+    }
+    $('#days').addEventListener('click', (e) => {
+      const b = e.target.closest('.day:not([disabled])');
+      if (!b) return;
+      $('#date').value = b.dataset.date;
+      $$('#days .day').forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', x === b); });
+      animate(b, 'pop');
+      onDateChange();
+    });
+    function onDateChange() {
+      checkDate();
+      loadAvailability();
+      saveDraft();
+      quote();
+    }
+
+    function enterCheckout() {
+      const ps = cartProducts();
+      const draft = store.get(DRAFT_KEY) || {};
+      // วันที่
+      const md = minDate();
+      if (!$('#date').value && draft.date && draft.date >= md) $('#date').value = draft.date;
+      $('#time').min = shop.openTime;
+      $('#time').max = shop.closeTime;
+      if (!$('#time').value) $('#time').value = draft.time || '';
+      const lead = Math.max(shop.minLeadDays, ...ps.map(leadOf));
+      $('#dateHint').textContent = `ต้องสั่งล่วงหน้า ${lead} วัน · รับของได้ ${shop.openTime}–${shop.closeTime} น. · ร้านรับออเดอร์ถึง ${shop.orderCutoffTime} น. ของทุกวัน${shop.pastCutoff ? ' (ตอนนี้เลยเวลาแล้ว นับเป็นสั่งพรุ่งนี้)' : ''}`;
+      renderDays();
+
+      // วิธีรับ
+      const canDeliver = shop.deliveryEnabled && ps.every((p) => p.deliveryAllowed);
+      const canPickup = shop.pickupEnabled && ps.every((p) => p.pickupAllowed);
+      const dIn = $('input[name=ful][value=delivery]');
+      const pIn = $('input[name=ful][value=pickup]');
+      dIn.disabled = !canDeliver;
+      pIn.disabled = !canPickup;
+      const minR = Math.min(...ps.map(radiusOf));
+      $('#delivHint').textContent = canDeliver ? `ภายใน ${minR} กม. · ${feeText()}` : !shop.deliveryEnabled ? 'ร้านไม่มีบริการส่ง' : `มีเมนูที่ส่งไม่ได้: ${ps.filter((p) => !p.deliveryAllowed).map((p) => p.name).join(', ')}`;
+      $('#pickHint').textContent = canPickup ? shop.address || 'ที่ร้าน' : !shop.pickupEnabled ? 'ร้านไม่รับให้มารับเอง' : `มีเมนูที่ต้องจัดส่ง: ${ps.filter((p) => !p.pickupAllowed).map((p) => p.name).join(', ')}`;
+      $('#fulErr').textContent = !canDeliver && !canPickup ? 'เมนูที่เลือกมีเงื่อนไขขัดกัน (บางอย่างส่งได้อย่างเดียว บางอย่างรับเองได้อย่างเดียว) กรุณาแยกสั่ง' : '';
+      const want = draft.ful || (canDeliver ? 'delivery' : 'pickup');
+      if (!$('input[name=ful]:checked') || $('input[name=ful]:checked').disabled) {
+        const el = want === 'delivery' && canDeliver ? dIn : canPickup ? pIn : canDeliver ? dIn : null;
+        if (el) el.checked = true;
+      }
+
+      // พื้นที่
+      const areas = shop.areas.length ? shop.areas : [...new Set(ps.flatMap((p) => p.allowedAreas))];
+      $('#areaWrap').classList.toggle('hidden', !areas.length);
+      $('#area').innerHTML = '<option value="">เลือกพื้นที่</option>' + areas.map((a) => `<option>${esc(a)}</option>`).join('');
+      if (draft.area) $('#area').value = draft.area;
+
+      // ผู้รับ
+      if (!$('#rname').value) $('#rname').value = draft.rname || me.user?.name || '';
+      if (!$('#rphone').value) $('#rphone').value = draft.rphone || me.user?.phone || '';
+      if (draft.purpose) $('#purpose').value = draft.purpose;
+      if (draft.bnote && !$('#bnote').value) $('#bnote').value = draft.bnote;
+      if (draft.address && !$('#address').value) $('#address').value = draft.address;
+      if (draft.pin && !pin) pin = draft.pin;
+      // ใช้ที่อยู่ที่ปักไว้ตอนเข้าสู่ระบบเป็นค่าเริ่มต้น
+      const myLoc = me.user?.location;
+      if (!pin && myLoc) {
+        pin = { lat: myLoc.lat, lng: myLoc.lng };
+        if (!$('#address').value && myLoc.address) $('#address').value = myLoc.address;
+        if (!$('#area').value && myLoc.district && [...$('#area').options].some((o) => o.value === myLoc.district)) $('#area').value = myLoc.district;
+      }
+
+      // ชำระ
+      $('#payTransfer').classList.toggle('hidden', !shop.transferEnabled);
+      $('#payCod').classList.toggle('hidden', !shop.codEnabled);
+      const pay = draft.pay && shop[draft.pay === 'cod' ? 'codEnabled' : 'transferEnabled'] ? draft.pay : shop.transferEnabled ? 'transfer' : 'cod';
+      if (!$('input[name=pay]:checked')) $(`input[name=pay][value=${pay}]`).checked = true;
+
+      $('#pickupBox').innerHTML = `<b>รับที่ร้าน:</b> ${esc(shop.address || 'ติดต่อร้านเพื่อสอบถามจุดรับ')}${shop.lat != null ? ` · <a href="${mapsLink(shop.lat, shop.lng)}" target="_blank" rel="noopener">เปิดแผนที่</a>` : ''}`;
+
+      renderCartLines();
+      onFulChange();
+    }
+
+    function firstOpenDate(from) {
+      let d = from;
+      for (let i = 0; i < 60; i++) {
+        if (!shop.closedWeekdays.includes(new Date(d + 'T00:00:00Z').getUTCDay()) && !shop.closedDates.includes(d)) return d;
+        d = addDays(d, 1);
+      }
+      return from;
+    }
+
+    function checkDate() {
+      const d = $('#date').value;
+      let msg = '';
+      if (!d) msg = 'กรุณาเลือกวันรับ';
+      else if (d < minDate()) msg = `วันที่เร็วเกินไป รับได้ตั้งแต่ ${fmtDate(minDate())}`;
+      else if (calStatus[d] === 'full') msg = 'คิววันนี้เต็มแล้ว กรุณาเลือกวันอื่น';
+      else if (calStatus[d] === 'closed') msg = 'ร้านหยุดวันที่เลือก';
+      $('#dateErr').textContent = msg;
+      $('#dateErr').classList.toggle('hidden', !msg);
+      return !msg;
+    }
+
+    async function loadAvailability() {
+      const d = $('#date').value;
+      if (!d) return;
+      try {
+        ({ remaining } = await api(`/api/shops/${encodeURIComponent(slug)}/availability?date=${d}`));
+      } catch { remaining = {}; }
+      renderCartLines();
+    }
+
+    function onFulChange() {
+      const ful = $('input[name=ful]:checked')?.value;
+      $('#deliveryBox').classList.toggle('hidden', ful !== 'delivery');
+      $('#pickupBox').classList.toggle('hidden', ful !== 'pickup');
+      if (ful === 'delivery') setupMap();
+      quote();
+    }
+
+    function setupMap() {
+      if (shop.lat == null) {
+        $('#distInfo').textContent = 'ร้านยังไม่ได้ตั้งตำแหน่ง จึงยังจัดส่งไม่ได้ กรุณาเลือกมารับเอง หรือติดต่อร้าน';
+        return;
+      }
+      const minR = Math.min(...cartProducts().map(radiusOf));
+      if (!map) {
+        map = L.map('map', { scrollWheelZoom: false }).setView([shop.lat, shop.lng], 13);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+        L.circleMarker([shop.lat, shop.lng], { radius: 7, color: '#a51d1d', fillColor: '#d62828', fillOpacity: 1 }).addTo(map).bindTooltip('ร้าน');
+        map.on('click', (e) => setPin(e.latlng.lat, e.latlng.lng));
+      }
+      if (circle) circle.remove();
+      circle = L.circle([shop.lat, shop.lng], { radius: minR * 1000, color: '#d62828', weight: 1.5, fillOpacity: 0.06 }).addTo(map);
+      setTimeout(() => {
+        map.invalidateSize();
+        if (pin) setPin(pin.lat, pin.lng, true);
+        else map.fitBounds(circle.getBounds(), { padding: [10, 10] });
+      }, 50);
+    }
+
+    function setPin(lat, lng, fit) {
+      pin = { lat, lng };
+      if (!marker) {
+        marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+        marker.on('dragend', () => { const p = marker.getLatLng(); setPin(p.lat, p.lng); });
+      } else marker.setLatLng([lat, lng]);
+      if (fit) map.setView([lat, lng], 14);
+      const dist = haversineKm(shop.lat, shop.lng, lat, lng);
+      const over = cartProducts().filter((p) => dist > radiusOf(p));
+      $('#distInfo').innerHTML = over.length
+        ? `<span style="color:var(--bad)">ห่างจากร้าน ${dist.toFixed(1)} กม. เกินระยะส่งของ ${esc(over.map((p) => `${p.name} (${radiusOf(p)} กม.)`).join(', '))}</span> — เลือกมารับเองได้`
+        : `ห่างจากร้านประมาณ ${dist.toFixed(1)} กม. (ระยะเส้นตรง) อยู่ในระยะส่ง`;
+      saveDraft();
+      quote();
+    }
+
+    $('#locBtn').onclick = () => {
+      if (!navigator.geolocation) return toast('อุปกรณ์นี้ไม่รองรับการหาตำแหน่ง', 'error');
+      $('#locBtn').disabled = true;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => { $('#locBtn').disabled = false; setPin(pos.coords.latitude, pos.coords.longitude, true); },
+        () => { $('#locBtn').disabled = false; toast('หาตำแหน่งไม่ได้ กรุณาแตะบนแผนที่แทน', 'error'); },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    };
+
+    function renderCartLines() {
+      $('#cartLines').innerHTML = [...cart].map(([id, v]) => {
+        const p = byId.get(id);
+        const left = remaining[id];
+        return `<div class="cart-line" data-id="${id}">
+          <div><b>${esc(p.name)}</b><div class="small muted num">${baht(p.price)} × ${v.qty} ${esc(p.unit)} = <b>${baht(p.price * v.qty)}</b></div>
+            ${left != null && v.qty > left ? `<div class="small" style="color:var(--bad)">วันที่เลือกรับได้อีก ${left} ${esc(p.unit)}</div>` : ''}</div>
+          <div class="stepper" style="width:118px"><button type="button" data-act="dec">−</button><input type="number" min="0" value="${v.qty}" data-act="set"><button type="button" data-act="inc">+</button></div>
+          <div class="note"><input type="text" maxlength="200" placeholder="หมายเหตุเมนูนี้ เช่น หวานน้อย" value="${esc(v.note)}" data-act="note"></div>
+        </div>`;
+      }).join('');
+      quote();
+    }
+    $('#cartLines').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-act]');
+      if (!b) return;
+      const id = +b.closest('.cart-line').dataset.id;
+      const p = byId.get(id);
+      const cur = cart.get(id).qty;
+      setQty(id, b.dataset.act === 'inc' ? cur + 1 : cur - 1 < p.minQty ? 0 : cur - 1);
+      afterCartEdit();
+    });
+    $('#cartLines').addEventListener('change', (e) => {
+      const id = +e.target.closest('.cart-line').dataset.id;
+      if (e.target.dataset.act === 'set') { setQty(id, +e.target.value); afterCartEdit(); }
+      if (e.target.dataset.act === 'note') { cart.get(id).note = e.target.value; saveCart(); }
+    });
+    function afterCartEdit() {
+      if (!cart.size) { history.back(); return; }
+      enterCheckout();
+    }
+
+    function payload() {
+      const ful = $('input[name=ful]:checked')?.value;
+      return {
+        shopSlug: slug,
+        items: [...cart].map(([productId, v]) => ({ productId, qty: v.qty, note: v.note })),
+        receiveDate: $('#date').value,
+        receiveTime: $('#time').value,
+        fulfillment: ful,
+        area: $('#area').value,
+        lat: ful === 'delivery' ? pin?.lat ?? null : null,
+        lng: ful === 'delivery' ? pin?.lng ?? null : null,
+        address: $('#address').value,
+        recipientName: $('#rname').value,
+        recipientPhone: $('#rphone').value,
+        purpose: $('#purpose').value,
+        buyerNote: $('#bnote').value,
+        paymentMethod: $('input[name=pay]:checked')?.value,
+      };
+    }
+
+    let quoteTimer, quoteOk = false;
+    function quote() {
+      clearTimeout(quoteTimer);
+      quoteTimer = setTimeout(async () => {
+        const { sum } = cartTotals();
+        const p = payload();
+        let fee = null, err = '', info = null, dist = null;
+        // ตรวจเฉพาะเมื่อกรอกส่วนสำคัญแล้ว เพื่อไม่ให้ขึ้น error ตั้งแต่ยังไม่ได้กรอก
+        const ready = p.receiveDate && p.receiveTime && p.fulfillment && (p.fulfillment === 'pickup' || (p.lat != null && p.address.trim().length >= 5));
+        if (ready) {
+          try {
+            const q = await api('/api/orders/quote', { method: 'POST', body: p });
+            fee = q.deliveryFee;
+            info = q.fee;
+            dist = q.distanceKm;
+          } catch (e) { err = e.message; }
+        }
+        // ยังไม่ครบ แต่ปักหมุดแล้ว → ประมาณค่าส่งให้ดูก่อน
+        if (fee == null && p.fulfillment === 'delivery' && pin && shop.lat != null) {
+          dist = haversineKm(shop.lat, shop.lng, pin.lat, pin.lng);
+          fee = feeAt(shop, dist);
+        }
+        quoteOk = ready && !err;
+        const isFree = fee === 0 && dist != null;
+        const feeLabel = dist != null ? `ค่าส่ง <small class="muted">(${dist.toFixed(1)} กม.)</small>` : 'ค่าส่ง';
+        $('#totals').innerHTML = `
+          <div><span>ค่าสินค้า</span><span class="num">${baht(sum)}</span></div>
+          ${p.fulfillment === 'delivery' ? `<div><span>${feeLabel}</span><span class="num">${fee == null ? '<span class="muted">ปักหมุดเพื่อคำนวณ</span>' : isFree ? '<b style="color:var(--ok)">ส่งฟรี</b>' : baht(fee)}</span></div>
+            <div class="small muted" style="display:block">${feeRule(shop)}</div>` : ''}
+          <div class="grand"><span>รวม</span><span class="num">${baht(sum + (fee || 0))}</span></div>`;
+        $('#quoteErr').textContent = err;
+        $('#quoteErr').classList.toggle('hidden', !err);
+      }, 250);
+    }
+
+    function saveDraft() {
+      store.set(DRAFT_KEY, {
+        date: $('#date').value, time: $('#time').value, ful: $('input[name=ful]:checked')?.value, area: $('#area').value,
+        address: $('#address').value, rname: $('#rname').value, rphone: $('#rphone').value, purpose: $('#purpose').value,
+        bnote: $('#bnote').value, pay: $('input[name=pay]:checked')?.value, pin,
+      });
+    }
+
+    $('#checkout').addEventListener('input', () => { saveDraft(); quote(); });
+    $('#checkout').addEventListener('change', (e) => {
+      if (e.target.name === 'ful') onFulChange();
+      if (e.target.id === 'date') { checkDate(); loadAvailability(); }
+      saveDraft();
+      quote();
+    });
+
+    $('#submitBtn').onclick = (e) => {
+      const p = payload();
+      if (!p.receiveDate || !checkDate()) return toast('กรุณาเลือกวันรับที่ถูกต้อง', 'error');
+      if (!p.receiveTime) return toast('กรุณาเลือกเวลารับ', 'error');
+      if (!p.fulfillment) return toast('กรุณาเลือกวิธีรับสินค้า', 'error');
+      if (p.fulfillment === 'delivery' && p.lat == null) return toast('กรุณาปักหมุดจุดส่งบนแผนที่', 'error');
+      if (!p.recipientName.trim() || !p.recipientPhone.trim()) return toast('กรุณากรอกชื่อและเบอร์ผู้รับ', 'error');
+      if (!me.user) {
+        saveDraft();
+        location.href = '/login?next=' + encodeURIComponent(location.pathname + '#checkout');
+        return;
+      }
+      busy(e.currentTarget, async () => {
+        const { code } = await api('/api/orders', { method: 'POST', body: p });
+        store.del(CART_KEY);
+        const d = store.get(DRAFT_KEY) || {};
+        store.set(DRAFT_KEY, { rname: d.rname, rphone: d.rphone, address: d.address, pin: d.pin, area: d.area });
+        location.href = '/o/' + code + '?new=1';
+      }).catch(toastErr);
+    };
+
+    if (!me.user) $('#submitBtn').textContent = 'เข้าสู่ระบบเพื่อสั่งซื้อ';
+
+    // เริ่มต้น
+    renderMenu();
+    goStep(location.hash === '#checkout' && cart.size ? 2 : 1);
+  </script>
+</body>
+</html>

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ข้อเสนอแนะ — Preshop</title>
+  <meta name="theme-color" content="#d62828">
+  <link rel="icon" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Preshop">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/v2.css">
+  <link rel="stylesheet" href="/css/v3.css">
+</head>
+<body>
+  <main>
+    <div class="wrap" style="max-width:760px">
+      <h1>บอกเราหน่อย</h1>
+      <p class="muted">อยากให้ Preshop มีฟีเจอร์อะไรเพิ่ม เจอปัญหาตรงไหน หรือมีคำแนะนำ เขียนมาได้เลย ทีมงานอ่านทุกข้อความ</p>
+
+      <form class="card stack" id="fb">
+        <div class="choices">
+          <label class="choice"><input type="radio" name="kind" value="request" checked><span class="box"><b>อยากให้เพิ่ม</b><small>ฟีเจอร์ / ระบบใหม่</small></span></label>
+          <label class="choice"><input type="radio" name="kind" value="problem"><span class="box"><b>แจ้งปัญหา</b><small>ใช้งานแล้วติดขัด</small></span></label>
+          <label class="choice"><input type="radio" name="kind" value="suggestion"><span class="box"><b>คำแนะนำทั่วไป</b><small>ความเห็นอื่นๆ</small></span></label>
+        </div>
+        <label class="field"><span>รายละเอียด</span><textarea id="msg" maxlength="1000" required placeholder="เช่น อยากให้แจ้งเตือนผ่าน LINE เมื่อมีออเดอร์ใหม่"></textarea></label>
+        <button class="btn primary">ส่งข้อความ</button>
+      </form>
+
+      <section id="admin" class="hidden">
+        <div class="section-title"><h2>ข้อความทั้งหมด (ผู้ดูแลระบบ)</h2></div>
+        <div id="adminList"></div>
+      </section>
+    </div>
+  </main>
+  <script type="module">
+    import { $, api, esc, renderChrome, toast, toastErr, busy, fmtDateTime, fmtPhone } from '/js/common.js';
+    const me = await renderChrome();
+
+    $('#fb').addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!me.user) {
+        location.href = '/login?next=/feedback';
+        return;
+      }
+      busy(e.submitter, () => api('/api/feedback', { method: 'POST', body: { kind: document.querySelector('input[name=kind]:checked').value, message: $('#msg').value } }))
+        .then(() => {
+          $('#msg').value = '';
+          toast('ขอบคุณ ส่งถึงทีมแล้ว', 'ok');
+          if (me.user?.isAdmin) loadAdmin();
+        })
+        .catch(toastErr);
+    });
+
+    const KIND = { suggestion: 'คำแนะนำ', request: 'อยากให้เพิ่ม', problem: 'แจ้งปัญหา' };
+    async function loadAdmin() {
+      const { feedback } = await api('/api/admin/feedback');
+      $('#admin').classList.remove('hidden');
+      $('#adminList').innerHTML = feedback.length ? feedback.map((f) => `
+        <div class="card" data-id="${f.id}">
+          <div class="row between"><b>${esc(f.userName || '-')} · ${fmtPhone(f.userPhone)}</b><span class="row"><span class="pill grey">${KIND[f.kind] || f.kind}</span>${f.status === 'done' ? '<span class="pill ok">จัดการแล้ว</span>' : ''}</span></div>
+          <div class="small muted">${fmtDateTime(f.createdAt)}</div>
+          <p style="white-space:pre-line;margin:6px 0">${esc(f.message)}</p>
+          <textarea placeholder="ตอบกลับ (ผู้ส่งจะเห็นในหน้าบัญชี)">${esc(f.reply)}</textarea>
+          <div class="row" style="margin-top:8px"><button class="btn sm primary" data-save="open">บันทึกคำตอบ</button><button class="btn sm" data-save="done">บันทึก + ปิดเรื่อง</button></div>
+        </div>`).join('') : '<div class="empty">ยังไม่มีข้อความ</div>';
+    }
+    $('#adminList').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-save]');
+      if (!b) return;
+      const card = b.closest('[data-id]');
+      try {
+        await api(`/api/admin/feedback/${card.dataset.id}/reply`, { method: 'POST', body: { reply: card.querySelector('textarea').value, status: b.dataset.save } });
+        toast('บันทึกแล้ว', 'ok');
+        loadAdmin();
+      } catch (err) { toastErr(err); }
+    });
+    if (me.user?.isAdmin) loadAdmin();
+  </script>
+</body>
+</html>

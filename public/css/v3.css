@@ -1,0 +1,1011 @@
+/* ═════════════ v3: ธีมแดง-ขาว-ดำ, สไลด์, ปฏิทินคิว, แชท ═════════════ */
+:root {
+  --page: #f3f3f5;
+  --black: #111111;
+}
+body {
+  background: var(--page);
+}
+.topbar {
+  border-bottom: 0;
+  box-shadow: 0 1px 0 #e6e6ea;
+}
+/* ปรับโลโก้สีส้มให้เข้ากับธีมแดง (ลบบรรทัดนี้ถ้าอยากได้สีเดิม) */
+.logo img {
+  filter: hue-rotate(-22deg) saturate(1.25);
+}
+.cat-tabs {
+  background: var(--page);
+}
+.shop-head {
+  background: #fff;
+}
+.hero {
+  background: #fff;
+}
+.card,
+.shop-card,
+.dish,
+.fact,
+.stat,
+.ocard,
+.prod-item,
+.order-row {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+footer.site {
+  background: var(--black);
+  color: #a1a1aa;
+  border-top: 0;
+}
+footer.site a {
+  color: #fff;
+}
+
+/* ปุ่มหลักสีดำ/แดงให้เห็นชัด */
+.btn.dark {
+  background: var(--black);
+  border-color: var(--black);
+  color: #fff;
+}
+.btn.dark:hover {
+  background: var(--brand);
+  border-color: var(--brand);
+}
+.dish [data-act='add'] {
+  background: var(--black);
+  border-color: var(--black);
+  color: #fff;
+  font-weight: 600;
+}
+.dish [data-act='add']:hover:not(:disabled) {
+  background: var(--brand);
+  border-color: var(--brand);
+}
+.dish [data-act='add']:disabled {
+  filter: none;
+  opacity: 1;
+  background: #e4e4e7;
+  border-color: #e4e4e7;
+  color: #52525b;
+}
+.stepper {
+  border-color: var(--black);
+}
+.stepper button {
+  background: var(--black);
+  color: #fff;
+}
+.stepper button:hover {
+  background: var(--brand);
+}
+.layout-checkout aside .btn.lg {
+  margin-bottom: 4px;
+}
+.layout-checkout aside .btn.lg + p {
+  margin-top: 16px !important;
+  line-height: 1.6;
+}
+.steps li.on {
+  background: var(--black);
+}
+.steps li.done {
+  background: #fff;
+  color: var(--ink);
+}
+
+/* ── สไลด์ร้านยอดนิยม (มีจุดกลมเลื่อนหน้า) ── */
+.slider {
+  position: relative;
+  background: var(--black);
+  color: #fff;
+  overflow: hidden;
+}
+.slides {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+/* สไลด์ซ้อนกัน แล้วค่อยๆ จาง (crossfade) ทีละหน้า */
+.slider .slides {
+  display: grid;
+  overflow: hidden;
+  scroll-snap-type: none;
+  touch-action: pan-y;
+  user-select: none;
+}
+.slider .slide {
+  grid-area: 1 / 1;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 1.1s ease, visibility 0s linear 1.1s;
+}
+.slider .slide.active {
+  opacity: 1;
+  visibility: visible;
+  z-index: 1;
+  transition: opacity 1.1s ease, visibility 0s;
+}
+.slider .dots,
+.slider .arrow {
+  z-index: 3;
+}
+/* เว้นที่ให้ลูกศรซ้าย-ขวา ไม่ให้บังข้อความ */
+@media (min-width: 641px) {
+  .slide .inner {
+    padding-left: max(16px, 76px - (100vw - 1120px) / 2);
+    padding-right: max(16px, 76px - (100vw - 1120px) / 2);
+  }
+}
+.slides::-webkit-scrollbar {
+  display: none;
+}
+.slide {
+  position: relative;
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  min-height: clamp(300px, 42vw, 440px);
+  display: flex;
+  align-items: flex-end;
+  isolation: isolate;
+}
+.slide .bg {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.slide .bg svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.slide .brand-art {
+  background: radial-gradient(circle at 75% 40%, #3a0d0d 0%, #111 60%);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+}
+.slide .brand-art .art {
+  padding: 24px 6%;
+}
+@media (max-width: 760px) {
+  .slide .brand-art {
+    grid-template-columns: 0.3fr 1fr;
+  }
+  .slide .brand-art .art {
+    opacity: 0.22;
+  }
+}
+.slide::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.82) 0%, rgba(0, 0, 0, 0.55) 45%, rgba(0, 0, 0, 0.05) 100%);
+}
+.slide .inner {
+  width: 100%;
+  padding-top: 40px;
+  padding-bottom: 64px;
+}
+.slide .kicker {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.85rem;
+  font-weight: 500;
+  background: var(--brand);
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+.slide h2 {
+  font-size: clamp(1.8rem, 4.6vw, 3.1rem);
+  line-height: 1.15;
+  margin: 14px 0 10px;
+  max-width: 16em;
+  font-weight: 700;
+}
+.slide h2 em {
+  font-style: normal;
+  color: #ff5a5a;
+}
+.slide p {
+  color: #e4e4e7;
+  max-width: 34em;
+  margin-bottom: 18px;
+}
+.slide .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.slide .meta span {
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(4px);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 0.85rem;
+}
+.slide .btn.primary {
+  box-shadow: none;
+}
+.slide .btn.ghost-light {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.5);
+  background: transparent;
+}
+.slide .btn.ghost-light:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.slide .searchbar input {
+  border: 0;
+}
+.dots {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 22px;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+.dots button {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 0;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  transition: width 0.3s var(--ease), background 0.3s;
+}
+.dots button.on {
+  width: 36px;
+  background: rgba(255, 255, 255, 0.45);
+  position: relative;
+  overflow: hidden;
+}
+/* จุดที่กำลังเล่นค่อยๆ เต็ม = เวลาก่อนเลื่อนสไลด์ถัดไป */
+.dots button.on::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  border-radius: inherit;
+  transform-origin: left;
+  animation: dot-fill var(--slide-ms, 5000ms) linear forwards;
+}
+.slider.paused .dots button.on::after {
+  animation-play-state: paused;
+}
+@keyframes dot-fill {
+  from {
+    transform: scaleX(0);
+  }
+}
+/* ภาพพื้นหลังซูมช้าๆ + ข้อความเลื่อนเข้าเมื่อสไลด์ขึ้นมา */
+.slide .bg {
+  transition: transform 6s ease-out;
+  transform: scale(1.08);
+}
+.slide.active .bg {
+  transform: scale(1);
+}
+.slide .inner > * {
+  opacity: 0;
+  transform: translateX(-28px);
+  transition: opacity 0.6s var(--ease), transform 0.6s var(--ease);
+}
+.slide.active .inner > * {
+  opacity: 1;
+  transform: none;
+}
+.slide.active .inner > *:nth-child(2) { transition-delay: 0.08s; }
+.slide.active .inner > *:nth-child(3) { transition-delay: 0.16s; }
+.slide.active .inner > *:nth-child(4) { transition-delay: 0.24s; }
+.slide.active .inner > *:nth-child(5) { transition-delay: 0.32s; }
+.slider .arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 1.4rem;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 0.2s, transform 0.15s;
+}
+.slider .arrow:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+.slider .arrow:active {
+  transform: translateY(-50%) scale(0.9);
+}
+.slider .arrow.prev {
+  left: 16px;
+}
+.slider .arrow.next {
+  right: 16px;
+}
+@media (max-width: 640px) {
+  .slider .arrow {
+    display: none;
+  }
+}
+
+.shop-card div.cover,
+.shop-head div.cover {
+  overflow: hidden;
+}
+.shop-card div.cover svg,
+.shop-head div.cover svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* แถบค้นหาใต้สไลด์ */
+.searchdock {
+  background: #fff;
+  border-bottom: 1px solid #e6e6ea;
+}
+.searchdock .wrap {
+  display: flex;
+  gap: 10px;
+  padding-top: 14px;
+  padding-bottom: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.searchdock form {
+  display: flex;
+  gap: 8px;
+  flex: 1 1 320px;
+}
+
+/* ปุ่มที่อยู่ของฉัน */
+.locchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 1.5px solid var(--line-2);
+  background: #fff;
+  border-radius: 12px;
+  padding: 6px 12px 6px 8px;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  min-height: 46px;
+  transition: border-color 0.15s, transform 0.15s var(--ease);
+  max-width: 100%;
+}
+.locchip:hover {
+  border-color: var(--brand);
+}
+.locchip:active {
+  transform: scale(0.97);
+}
+.locchip .ic svg {
+  width: 26px;
+  height: 26px;
+  display: block;
+}
+.locchip small {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.1;
+}
+.locchip b {
+  display: block;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.locchip .chev {
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+.searchdock select {
+  min-height: 46px;
+}
+.area-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--ink-2);
+  margin-top: -2px;
+}
+.area-line svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.forme {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  background: #111;
+  color: #fff;
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.forme span {
+  font-weight: 600;
+}
+.forme.free span {
+  color: #7ee2a1;
+}
+.forme.out {
+  background: #f4f4f5;
+  color: #52525b;
+}
+
+/* ตัวกรองแถว 2 */
+.filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+.filterbar select {
+  width: auto;
+  min-height: 38px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  border: 1.5px solid var(--line-2);
+}
+.filterbar .sep {
+  width: 1px;
+  height: 24px;
+  background: var(--line-2);
+  margin: 0 4px;
+}
+.chip.plain.on {
+  background: var(--black);
+  border-color: var(--black);
+  box-shadow: none;
+}
+.chip.star.on {
+  background: #f5a524;
+  border-color: #f5a524;
+  color: #111;
+}
+
+/* ── ปฏิทินคิว (ลูกค้า) ── */
+.daystrip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
+  gap: 8px;
+}
+.day {
+  border: 1.5px solid var(--line-2);
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px 4px;
+  text-align: center;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1.25;
+  transition: transform 0.15s var(--ease), border-color 0.15s, background 0.15s;
+}
+.day:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.day .w {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.day .n {
+  font-size: 1.25rem;
+  font-weight: 700;
+  display: block;
+}
+.day .m {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.day .st {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 1px 0;
+}
+.day.open .st {
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+.day.full,
+.day.closed {
+  cursor: not-allowed;
+  background: #f4f4f5;
+  border-style: dashed;
+}
+.day.full .n,
+.day.closed .n {
+  color: #a1a1aa;
+  text-decoration: line-through;
+}
+.day.full .st {
+  color: #fff;
+  background: var(--brand);
+}
+.day.closed .st {
+  color: #52525b;
+  background: #e4e4e7;
+}
+.day.on {
+  border-color: var(--black);
+  background: var(--black);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+.day.on .w,
+.day.on .m {
+  color: #d4d4d8;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 4px;
+  vertical-align: -1px;
+}
+
+/* ── สถานะร้าน (ผู้ขาย) แบบปุ่ม 3 ทาง ── */
+.status-ctl {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+.status-ctl button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  border: 1.5px solid var(--line-2);
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  color: var(--ink-2);
+  transition: transform 0.15s var(--ease), background 0.15s, border-color 0.15s;
+}
+.dash-nav .status-ctl button {
+  justify-content: flex-start;
+  padding: 8px 10px;
+}
+.status-ctl button:active {
+  transform: scale(0.96);
+}
+.status-ctl button i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+.status-ctl button[data-mode='open'] i {
+  background: var(--ok);
+}
+.status-ctl button[data-mode='today'] i {
+  background: #f5a524;
+}
+.status-ctl button[data-mode='closed'] i {
+  background: #71717a;
+}
+.status-ctl button.on[data-mode='open'] {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #fff;
+}
+.status-ctl button.on[data-mode='today'] {
+  background: #f5a524;
+  border-color: #f5a524;
+  color: #111;
+}
+.status-ctl button.on[data-mode='closed'] {
+  background: #3f3f46;
+  border-color: #3f3f46;
+  color: #fff;
+}
+.status-ctl button.on i {
+  background: #fff;
+}
+.status-ctl small {
+  display: block;
+  font-size: 0.72rem;
+  opacity: 0.8;
+}
+@media (max-width: 860px) {
+  .dash-nav .status-ctl {
+    display: flex;
+    margin: 0;
+  }
+  .dash-nav .status-ctl small {
+    display: none;
+  }
+  .dash-nav .status-ctl button {
+    white-space: nowrap;
+    padding: 6px 10px;
+  }
+}
+
+/* ── ปฏิทินคิว (ผู้ขาย) ── */
+.qgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+.qday {
+  background: #fff;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.qday .top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.qday .d {
+  font-weight: 700;
+}
+.qday .cnt {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.qday .bar {
+  height: 6px;
+  border-radius: 3px;
+  background: #ececef;
+  overflow: hidden;
+}
+.qday .bar i {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+.qday.full {
+  border-color: var(--brand);
+  background: #fff5f5;
+}
+.qday.full .bar i {
+  background: var(--brand);
+}
+.qday.closed {
+  background: #f4f4f5;
+  border-style: dashed;
+  color: #71717a;
+}
+.qday.today {
+  outline: 2px solid var(--black);
+  outline-offset: 1px;
+}
+.qday .btn {
+  min-height: 32px;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+}
+
+/* ── แชท ── */
+.chat {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  height: calc(100vh - 140px);
+  min-height: 460px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.chat-list {
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+.chat-list a {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s;
+}
+.chat-list a:hover {
+  background: #fafafa;
+}
+.chat-list a.on {
+  background: #fff2f2;
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+.chat-list .av {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: grid;
+  place-items: center;
+  background: var(--brand-50);
+  font-weight: 700;
+  color: var(--brand-ink);
+  overflow: hidden;
+}
+.chat-list .av svg {
+  width: 70%;
+}
+.chat-list .t,
+.chat-list .s {
+  display: block;
+}
+.chat-list .t {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-list .s {
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-room {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.chat-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.chat-msgs {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  background: #fafafa;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bubble {
+  max-width: 72%;
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid var(--line);
+  white-space: pre-wrap;
+  word-break: break-word;
+  align-self: flex-start;
+  animation: fade-up 0.2s var(--ease);
+}
+.bubble.mine {
+  align-self: flex-end;
+  background: var(--black);
+  color: #fff;
+  border-color: var(--black);
+  border-bottom-right-radius: 4px;
+}
+.bubble:not(.mine) {
+  border-bottom-left-radius: 4px;
+}
+.bubble .time {
+  display: block;
+  font-size: 0.68rem;
+  opacity: 0.6;
+  margin-top: 2px;
+  text-align: right;
+}
+.bubble .ref {
+  display: inline-block;
+  font-size: 0.75rem;
+  background: rgba(214, 40, 40, 0.12);
+  color: var(--brand-ink);
+  border-radius: 6px;
+  padding: 1px 6px;
+  margin-bottom: 4px;
+  text-decoration: none;
+}
+.bubble.mine .ref {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+.day-sep {
+  align-self: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: #ececef;
+  border-radius: 999px;
+  padding: 2px 10px;
+  margin: 8px 0;
+}
+.chat-send {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  align-items: flex-end;
+}
+.chat-send textarea {
+  min-height: 44px;
+  max-height: 140px;
+  resize: none;
+}
+.chat-quick {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px 12px 0;
+  scrollbar-width: none;
+}
+.chat-quick button {
+  flex: none;
+  border: 1px solid var(--line-2);
+  background: #fff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.chat-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--muted);
+  padding: 24px;
+}
+@media (max-width: 760px) {
+  .chat {
+    grid-template-columns: 1fr;
+    height: calc(100vh - 110px);
+  }
+  .chat.in-room .chat-list {
+    display: none;
+  }
+  .chat:not(.in-room) .chat-room {
+    display: none;
+  }
+}
+/* ── โหมดแอป (เปิดจากไอคอนบนหน้าจอ) ── */
+.appnav {
+  display: none;
+}
+html.app-mode .appnav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 80;
+  display: flex;
+  background: #fff;
+  border-top: 1px solid #e6e6ea;
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.05);
+}
+.appnav a {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-decoration: none;
+  color: #71717a;
+  font-size: 0.7rem;
+  position: relative;
+  padding: 2px 0;
+  transition: color 0.15s, transform 0.15s var(--ease);
+}
+.appnav a:active {
+  transform: scale(0.9);
+}
+.appnav a.on {
+  color: var(--brand);
+  font-weight: 600;
+}
+.appnav svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.appnav a.on svg {
+  fill: var(--brand-50);
+}
+.appnav .badge-dot {
+  position: absolute;
+  top: -2px;
+  left: calc(50% + 6px);
+  font-style: normal;
+  margin: 0;
+}
+html.app-mode body {
+  padding-bottom: calc(64px + env(safe-area-inset-bottom));
+}
+html.app-mode footer.site {
+  display: none;
+}
+html.app-mode .cartbar {
+  bottom: calc(60px + env(safe-area-inset-bottom));
+}
+html.app-mode .toasts {
+  bottom: 150px;
+}
+html.app-mode .chat {
+  height: calc(100vh - 180px);
+}
+
+@media (min-width: 761px) {
+  .chat-head #back {
+    display: none;
+  }
+}
+.fab-chat {
+  position: fixed;
+  right: 16px;
+  bottom: 96px;
+  z-index: 55;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--black);
+  color: #fff;
+  border-radius: 999px;
+  padding: 12px 18px;
+  text-decoration: none;
+  font-weight: 600;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.15s var(--ease), background 0.2s;
+}
+.fab-chat:hover {
+  background: var(--brand);
+  transform: translateY(-2px);
+}
+.fab-chat:active {
+  transform: scale(0.95);
+}

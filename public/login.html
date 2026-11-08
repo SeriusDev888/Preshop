@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>เข้าสู่ระบบ — Preshop</title>
+  <meta name="theme-color" content="#d62828">
+  <link rel="icon" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Preshop">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/v2.css">
+  <link rel="stylesheet" href="/css/v3.css">
+</head>
+<body>
+  <main>
+    <div class="wrap-narrow">
+      <div class="card" style="margin-top:24px">
+        <h1>เข้าสู่ระบบ / สมัครสมาชิก</h1>
+        <p class="muted">ใช้เบอร์มือถือเพื่อยืนยันตัวตน ทั้งผู้ซื้อและผู้ขายใช้บัญชีเดียวกัน ไม่ต้องตั้งรหัสผ่าน</p>
+
+        <form id="phoneForm" class="stack">
+          <label class="field">
+            <span>เบอร์มือถือ</span>
+            <input type="tel" id="phone" inputmode="numeric" autocomplete="tel" placeholder="08x-xxx-xxxx" maxlength="12" required>
+          </label>
+          <button class="btn primary block lg" id="sendBtn">ส่งรหัสยืนยันทาง SMS</button>
+        </form>
+
+        <form id="otpForm" class="stack hidden">
+          <p>ส่งรหัส 6 หลักไปที่ <b id="sentTo"></b> แล้ว <button type="button" class="btn ghost sm" id="changePhone">เปลี่ยนเบอร์</button></p>
+          <div id="devBox" class="notice warn hidden">
+            โหมดทดสอบ (ยังไม่ได้ต่อระบบ SMS จริง) รหัสของคุณคือ <span class="dev-otp" id="devCode"></span>
+          </div>
+          <label class="field">
+            <span>รหัสยืนยัน</span>
+            <input type="text" id="code" class="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\d{6}" required>
+          </label>
+          <button class="btn primary block lg" id="verifyBtn">ยืนยัน</button>
+          <button type="button" class="btn ghost block" id="resendBtn" disabled>ขอรหัสใหม่</button>
+        </form>
+
+        <form id="nameForm" class="stack hidden">
+          <p>ยินดีต้อนรับ! ขอชื่อสำหรับให้ร้านเรียก/ติดต่อ</p>
+          <label class="field">
+            <span>ชื่อ-นามสกุล หรือชื่อเล่น</span>
+            <input type="text" id="name" maxlength="80" autocomplete="name" required>
+          </label>
+          <button class="btn primary block lg">เริ่มใช้งาน</button>
+          <p class="small muted">เพิ่ม Facebook / LINE ได้ภายหลังในหน้าบัญชี</p>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { $, api, renderChrome, toast, toastErr, busy, getMe, pickMyLocation } from '/js/common.js';
+    renderChrome();
+
+    const next = (() => {
+      const n = new URLSearchParams(location.search).get('next') || '/';
+      return n.startsWith('/') && !n.startsWith('//') ? n : '/';
+    })();
+    let phone = '';
+    let timer;
+
+    function cooldown(sec) {
+      const b = $('#resendBtn');
+      b.disabled = true;
+      clearInterval(timer);
+      timer = setInterval(() => {
+        sec--;
+        b.textContent = sec > 0 ? `ขอรหัสใหม่ (${sec})` : 'ขอรหัสใหม่';
+        if (sec <= 0) {
+          clearInterval(timer);
+          b.disabled = false;
+        }
+      }, 1000);
+    }
+
+    async function requestOtp() {
+      const r = await api('/api/auth/request-otp', { method: 'POST', body: { phone } });
+      phone = r.phone;
+      $('#sentTo').textContent = phone.replace(/^(\d{3})(\d{3})(\d{4})$/, '$1-$2-$3');
+      $('#devBox').classList.toggle('hidden', !r.devCode);
+      $('#devCode').textContent = r.devCode || '';
+      $('#phoneForm').classList.add('hidden');
+      $('#otpForm').classList.remove('hidden');
+      $('#code').value = '';
+      $('#code').focus();
+      cooldown(60);
+    }
+
+    $('#phoneForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      phone = $('#phone').value;
+      busy($('#sendBtn'), requestOtp).catch(toastErr);
+    });
+    $('#resendBtn').onclick = () => busy($('#resendBtn'), requestOtp).then(() => toast('ส่งรหัสใหม่แล้ว')).catch(toastErr);
+    $('#changePhone').onclick = () => {
+      $('#otpForm').classList.add('hidden');
+      $('#phoneForm').classList.remove('hidden');
+      $('#phone').focus();
+    };
+
+    $('#otpForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      busy($('#verifyBtn'), async () => {
+        const r = await api('/api/auth/verify-otp', { method: 'POST', body: { phone, code: $('#code').value } });
+        if (r.needsProfile) {
+          $('#otpForm').classList.add('hidden');
+          $('#nameForm').classList.remove('hidden');
+          $('#name').focus();
+        } else {
+          await finish(r.user);
+        }
+      }).catch(toastErr);
+    });
+
+    // ยังไม่มีที่อยู่ → ให้ปักหมุดก่อน เพื่อคำนวณระยะ/ค่าส่งให้ทุกร้าน (ข้ามได้)
+    async function finish(user) {
+      if (!user.location) {
+        await getMe(true);
+        await pickMyLocation({ skippable: true, intro: 'ขั้นตอนสุดท้าย: ปักหมุดที่อยู่ของคุณ ระบบจะบอกว่าแต่ละร้านอยู่ห่างกี่กิโล และค่าส่งเท่าไหร่ (ข้ามได้ ตั้งทีหลังในหน้าบัญชี)' });
+      }
+      location.href = next;
+    }
+    $('#code').addEventListener('input', (e) => {
+      e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+      if (e.target.value.length === 6) $('#otpForm').requestSubmit();
+    });
+
+    $('#nameForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const { user } = await api('/api/me', { method: 'PUT', body: { name: $('#name').value, contacts: {} } });
+        await finish(user);
+      } catch (err) {
+        toastErr(err);
+      }
+    });
+
+    $('#phone').focus();
+  </script>
+</body>
+</html>
